@@ -6,6 +6,7 @@
 #
 # Authors:
 #  - Brian Felton <github: bjfelton>
+#  - Malcolm Studd <github: mestudd>
 #
 # apigw_domain_name
 #    Manage creation, update, and removal of API Gateway DomainName resources
@@ -14,6 +15,7 @@
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
+# Copyright (c) 2018 Malcolm studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -50,27 +52,30 @@ options:
     type: string
     required: True
     aliases: domain_name
+  cert_arn:
+    description:
+    - ARN of the associated certificate. Either C(cert_arn) or C(cert_name) is required when C(state) is 'present'.
   cert_name:
     description:
-    - Name of the associated certificate. Required when C(state) is 'present'
+    - Name of the associated certificate. Either C(cert_arn) or C(cert_name) is required when C(state) is 'present'.
     type: string
     required: False
     default: None
   cert_private_key:
     description:
-    - Certificate's private key. Required when C(state) is 'present'
+    - Certificate's private key. Required when C(state) is 'present' and C(cert_name) is specified.
     type: string
     required: False
     default: None
   cert_body:
     description:
-    - Body of the server certificate. Required when C(state) is 'present'
+    - Body of the server certificate. Required when C(state) is 'present' and C(cert_name) is specified.
     type: string
     required: False
     default: None
   cert_chain:
     description:
-    - Intermediate certificates and optionally the root certificate.  If root is included, it must follow the intermediate certificates. Required when C(state) is 'present'
+    - Intermediate certificates and optionally the root certificate.  If root is included, it must follow the intermediate certificates. Required when C(state) is 'present' and C(cert_name) is specified.
     type: string
     required: False
     default: None
@@ -93,9 +98,15 @@ EXAMPLES = '''
 - hosts: localhost
   gather_facts: False
   tasks:
-  - name: api key creation
+  - name: Create domain name with ACM certificate
     apigw_domain_name:
       name: testdomain.io.edu.mil
+      cert_arn: 'arn:aws:acm:us-east-1:1234:certificate/abcd'
+      state: "{{ state | default('present') }}"
+
+  - name: Create domain name with custom certificate
+    apigw_domain_name:
+      name: testdomain2.io.edu.mil
       cert_name: 'test-cert'
       cert_body: 'cert body'
       cert_private_key: 'totally secure key'
@@ -145,6 +156,7 @@ class ApiGwDomainName:
     :return: Dictionary defining module arguments
     """
     return dict( name=dict(required=True, aliases=['domain_name']),
+                 cert_arn=dict(required=False),
                  cert_name=dict(required=False),
                  cert_body=dict(required=False),
                  cert_private_key=dict(required=False),
@@ -191,21 +203,28 @@ class ApiGwDomainName:
     domain_name = None
     changed = False
 
-    for required in ['cert_name', 'cert_body', 'cert_private_key', 'cert_chain']:
-      if self.module.params.get(required, None) is None:
-        self.module.fail_json(msg="All certificate parameters are required to create a domain name")
-        return (changed, domain_name)
+    if self.module.params.get('cert_arn', None) is None:
+      for required in ['cert_name', 'cert_body', 'cert_private_key', 'cert_chain']:
+        if self.module.params.get(required, None) is None:
+          self.module.fail_json(msg="Certificate ARN or all certificate parameters are required to create a domain name")
+          return (changed, domain_name)
 
     try:
       changed = True
       if not self.module.check_mode:
-        domain_name = self.client.create_domain_name(
-          domainName=self.module.params['name'],
-          certificateName=self.module.params['cert_name'],
-          certificateBody=self.module.params['cert_body'],
-          certificatePrivateKey=self.module.params['cert_private_key'],
-          certificateChain=self.module.params['cert_chain'],
-        )
+        if self.module.params.get('cert_arn', None) is None:
+          domain_name = self.client.create_domain_name(
+            domainName=self.module.params['name'],
+            certificateName=self.module.params['cert_name'],
+            certificateBody=self.module.params['cert_body'],
+            certificatePrivateKey=self.module.params['cert_private_key'],
+            certificateChain=self.module.params['cert_chain'],
+          )
+        else:
+          domain_name = self.client.create_domain_name(
+            domainName=self.module.params['name'],
+            certificateArn=self.module.params['cert_arn'],
+          )
 
     except BotoCoreError as e:
       self.module.fail_json(msg="Error when creating domain_name via boto3: {}".format(e))
@@ -222,6 +241,9 @@ class ApiGwDomainName:
 
     try:
       patches = []
+      cert_arn = self.module.params.get('cert_arn', None)
+      if cert_arn not in ['', None] and cert_arn != self.me['certificateArn']:
+        patches.append({'op': 'replace', 'path': '/certificateArn', 'value': cert_arn})
       cert_name = self.module.params.get('cert_name', None)
       if cert_name not in ['', None] and cert_name != self.me['certificateName']:
         patches.append({'op': 'replace', 'path': '/certificateName', 'value': cert_name})

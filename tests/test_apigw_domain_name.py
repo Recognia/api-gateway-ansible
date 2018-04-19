@@ -29,6 +29,11 @@ class TestApiGwDomainName(unittest.TestCase):
       'cert_chain': 'cert-chain',
       'state': 'present',
     }
+    self.domain_name.module.params_arn = {
+      'name': 'testify',
+      'cert_arn': 'cert-arn',
+      'state': 'present',
+    }
     reload(apigw_domain_name)
 
   def test_boto_module_not_found(self):
@@ -172,6 +177,16 @@ class TestApiGwDomainName(unittest.TestCase):
 
 
   @patch.object(ApiGwDomainName, '_retrieve_domain_name', return_value=None)
+  def test_process_request_calls_arn_create_domain_name_when_state_present_and_domain_name_not_found(self, m):
+    self.domain_name.module.params = copy.deepcopy(self.domain_name.module.params_arn)
+    self.domain_name.process_request()
+
+    self.domain_name.client.create_domain_name.assert_called_once_with(
+      domainName='testify',
+      certificateArn='cert-arn',
+    )
+
+  @patch.object(ApiGwDomainName, '_retrieve_domain_name', return_value=None)
   def test_process_request_calls_create_domain_name_when_state_present_and_domain_name_not_found(self, m):
     self.domain_name.process_request()
 
@@ -200,6 +215,17 @@ class TestApiGwDomainName(unittest.TestCase):
     )
 
   @patch.object(ApiGwDomainName, '_retrieve_domain_name', return_value=None)
+  def test_process_request_validates_arn_when_state_is_present(self, m):
+    orig = copy.deepcopy(self.domain_name.module.params_arn)
+
+    for p in ['cert_arn']:
+      self.domain_name.module.params = copy.deepcopy(orig)
+      self.domain_name.module.params.pop(p)
+      self.domain_name.process_request()
+      self.assertEqual(0, self.domain_name.client.create_domain_name.call_count)
+      self.domain_name.module.fail_json.assert_called_with(msg='Certificate ARN or all certificate parameters are required to create a domain name')
+
+  @patch.object(ApiGwDomainName, '_retrieve_domain_name', return_value=None)
   def test_process_request_validates_required_params_when_state_is_present(self, m):
     orig = copy.deepcopy(self.domain_name.module.params)
 
@@ -208,7 +234,7 @@ class TestApiGwDomainName(unittest.TestCase):
       self.domain_name.module.params.pop(p)
       self.domain_name.process_request()
       self.assertEqual(0, self.domain_name.client.create_domain_name.call_count)
-      self.domain_name.module.fail_json.assert_called_with(msg='All certificate parameters are required to create a domain name')
+      self.domain_name.module.fail_json.assert_called_with(msg='Certificate ARN or all certificate parameters are required to create a domain name')
 
   @patch.object(ApiGwDomainName, '_retrieve_domain_name', return_value=None)
   def test_process_request_skips_create_call_and_returns_changed_True_when_check_mode(self, m):
@@ -274,6 +300,7 @@ class TestApiGwDomainName(unittest.TestCase):
     self.assertIsInstance(result, dict)
     self.assertEqual(result, dict(
                      name=dict(required=True, aliases=['domain_name']),
+                     cert_arn=dict(required=False),
                      cert_name=dict(required=False),
                      cert_body=dict(required=False),
                      cert_private_key=dict(required=False),
