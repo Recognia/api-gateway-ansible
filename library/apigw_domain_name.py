@@ -61,24 +61,6 @@ options:
     type: string
     required: False
     default: None
-  cert_private_key:
-    description:
-    - Certificate's private key. Required when C(state) is 'present' and C(cert_name) is specified.
-    type: string
-    required: False
-    default: None
-  cert_body:
-    description:
-    - Body of the server certificate. Required when C(state) is 'present' and C(cert_name) is specified.
-    type: string
-    required: False
-    default: None
-  cert_chain:
-    description:
-    - Intermediate certificates and optionally the root certificate.  If root is included, it must follow the intermediate certificates. Required when C(state) is 'present' and C(cert_name) is specified.
-    type: string
-    required: False
-    default: None
   state:
     description:
     - Should domain_name exist or not
@@ -91,6 +73,9 @@ requirements:
     - boto3
 notes:
     - This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
+extends_documentation_fragment:
+    - aws
+    - ec2
 '''
 
 EXAMPLES = '''
@@ -103,15 +88,6 @@ EXAMPLES = '''
       name: testdomain.io.edu.mil
       cert_arn: 'arn:aws:acm:us-east-1:1234:certificate/abcd'
       state: "{{ state | default('present') }}"
-
-  - name: Create domain name with custom certificate
-    apigw_domain_name:
-      name: testdomain2.io.edu.mil
-      cert_name: 'test-cert'
-      cert_body: 'cert body'
-      cert_private_key: 'totally secure key'
-      cert_chain: 'sure, this is real'
-      state: "{{ state | default('present') }}"
     register: dn
 
   - debug: var=dn
@@ -120,9 +96,9 @@ EXAMPLES = '''
 RETURN = '''
 ---
 domain_name:
-	description: dictionary representing the domain name
-	returned: success
-	type: dict
+  description: dictionary representing the domain name
+  returned: success
+  type: dict
 changed:
   description: standard boolean indicating if something changed
   returned: always
@@ -131,170 +107,158 @@ changed:
 
 __version__ = '${version}'
 
+
 try:
-  import boto3
-  import boto
-  from botocore.exceptions import BotoCoreError, ClientError
-  HAS_BOTO3 = True
+    import botocore
 except ImportError:
-  HAS_BOTO3 = False
+    # HAS_BOTOCORE taken care of in AnsibleAWSModule
+    pass
 
-class ApiGwDomainName:
-  def __init__(self, module):
-    """
-    Constructor
-    """
-    self.module = module
-    if (not HAS_BOTO3):
-      self.module.fail_json(msg="boto and boto3 are required for this module")
-    self.client = boto3.client('apigateway')
-
-  @staticmethod
-  def _define_module_argument_spec():
-    """
-    Defines the module's argument spec
-    :return: Dictionary defining module arguments
-    """
-    return dict( name=dict(required=True, aliases=['domain_name']),
-                 cert_arn=dict(required=False),
-                 cert_name=dict(required=False),
-                 cert_body=dict(required=False),
-                 cert_private_key=dict(required=False),
-                 cert_chain=dict(required=False),
-                 state=dict(default='present', choices=['present', 'absent']),
-    )
-
-  def _retrieve_domain_name(self):
-    """
-    Retrieve domain name by provided name
-    :return: Result matching the provided domain name or an empty hash
-    """
-    resp = None
-    try:
-      resp = self.client.get_domain_name(domainName=self.module.params['name'])
-
-    except ClientError as e:
-      if 'NotFoundException' in e.message:
-        resp = None
-      else:
-        self.module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))
-
-    return resp
-
-  def _delete_domain_name(self):
-    """
-    Delete domain_name that matches the returned id
-    :return: True
-    """
-    try:
-      if not self.module.check_mode:
-        self.client.delete_domain_name(domainName=self.module.params['name'])
-      return True
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when deleting domain_name via boto3: {}".format(e))
-
-  def _create_domain_name(self):
-    """
-    Create domain_name from provided args
-    :return: True, result from create_domain_name
-    """
-    domain_name = None
-    changed = False
-
-    if self.module.params.get('cert_arn', None) is None:
-      for required in ['cert_name', 'cert_body', 'cert_private_key', 'cert_chain']:
-        if self.module.params.get(required, None) is None:
-          self.module.fail_json(msg="Certificate ARN or all certificate parameters are required to create a domain name")
-          return (changed, domain_name)
-
-    try:
-      changed = True
-      if not self.module.check_mode:
-        if self.module.params.get('cert_arn', None) is None:
-          domain_name = self.client.create_domain_name(
-            domainName=self.module.params['name'],
-            certificateName=self.module.params['cert_name'],
-            certificateBody=self.module.params['cert_body'],
-            certificatePrivateKey=self.module.params['cert_private_key'],
-            certificateChain=self.module.params['cert_chain'],
-          )
-        else:
-          domain_name = self.client.create_domain_name(
-            domainName=self.module.params['name'],
-            certificateArn=self.module.params['cert_arn'],
-          )
-
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when creating domain_name via boto3: {}".format(e))
-
-    return (changed, domain_name)
-
-  def _update_domain_name(self):
-    """
-    Create domain_name from provided args
-    :return: True, result from create_domain_name
-    """
-    domain_name = self.me
-    changed = False
-
-    try:
-      patches = []
-      cert_arn = self.module.params.get('cert_arn', None)
-      if cert_arn not in ['', None] and cert_arn != self.me['certificateArn']:
-        patches.append({'op': 'replace', 'path': '/certificateArn', 'value': cert_arn})
-      cert_name = self.module.params.get('cert_name', None)
-      if cert_name not in ['', None] and cert_name != self.me['certificateName']:
-        patches.append({'op': 'replace', 'path': '/certificateName', 'value': cert_name})
-
-      if patches:
-        changed = True
-
-        if not self.module.check_mode:
-          self.client.update_domain_name(
-            domainName=self.module.params['name'],
-            patchOperations=patches
-          )
-          domain_name = self._retrieve_domain_name()
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when updating domain_name via boto3: {}".format(e))
-
-    return (changed, domain_name)
-
-  def process_request(self):
-    """
-    Process the user's request -- the primary code path
-    :return: Returns either fail_json or exit_json
-    """
-
-    domain_name = None
-    changed = False
-    self.me = self._retrieve_domain_name()
-
-    if self.module.params.get('state', 'present') == 'absent' and self.me is not None:
-      changed = self._delete_domain_name()
-    elif self.module.params.get('state', 'present') == 'present':
-      if self.me is None:
-        (changed, domain_name) = self._create_domain_name()
-      else:
-        (changed, domain_name) = self._update_domain_name()
-
-    self.module.exit_json(changed=changed, domain_name=domain_name)
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
 def main():
-    """
-    Instantiates the module and calls process_request.
-    :return: none
-    """
-    module = AnsibleModule(
-        argument_spec=ApiGwDomainName._define_module_argument_spec(),
-        supports_check_mode=True
+    argument_spec = dict(
+        name=dict(required=True, aliases=['domain_name']),
+        cert_arn=dict(required=False),
+        cert_name=dict(required=False),
+        state=dict(default='present', choices=['present', 'absent']),
     )
 
-    domain_name = ApiGwDomainName(module)
-    domain_name.process_request()
+    mutually_exclusive = [['cert_arn', 'cert_name']]
 
-from ansible.module_utils.basic import *  # pylint: disable=W0614
+    module = AnsibleAWSModule(
+        argument_spec=argument_spec,
+        supports_check_mode=False,
+        mutually_exclusive=mutually_exclusive,
+    )
+
+    client = module.client('apigateway')
+
+    state = module.params.get('state')
+
+    changed = True
+
+    try:
+      if state == "present":
+        result = ensure_domain_name_present(module, client)
+      elif state == 'absent':
+        result = ensure_domain_name_absent(module, client)
+    except botocore.exceptions.ClientError as e:
+      module.fail_json_aws(e)
+
+    module.exit_json(**result)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_create_domain_name(client, name, cert_arn, cert_name):
+  if cert_arn is None:
+    return client.create_domain_name(
+      domainName=name,
+      certificateName=cert_name
+    )
+  else:
+    return client.create_domain_name(
+      domainName=name,
+      certificateArn=cert_arn
+    )
+
+@AWSRetry.exponential_backoff()
+def backoff_delete_domain_name(client, name):
+  return client.delete_domain_name(domainName=name)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_domain_name(client, name):
+  return client.get_domain_name(domainName=name)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_update_domain_name(client, name, patches):
+  return client.update_domain_name(
+    domainName=name,
+    patchOperations=patches
+  )
+
+
+def ensure_domain_name_absent(module, client):
+  name = module.params.get('name')
+
+  domain = retrieve_domain_name(module, client, name)
+  if domain is None:
+    return {'changed': False}
+
+  try:
+    if not module.check_mode:
+      backoff_delete_domain_name(client, name)
+    return {'changed': True}
+  except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+    module.fail_json_aws(e, msg="Couldn't delete domain name")
+
+def ensure_domain_name_present(module, client):
+  name = module.params.get('name')
+  cert_arn = module.params.get('cert_arn')
+  cert_name = module.params.get('cert_name')
+
+  domain = retrieve_domain_name(module, client, name)
+  changed = False
+
+  if cert_arn is None and cert_name is None:
+    module.fail_json(msg="Certificate ARN or name is required to create a domain name")
+    return {'changed': False}
+
+  if domain is None:
+    if not module.check_mode:
+      domain = backoff_create_domain_name(client, name, cert_arn, cert_name)
+    changed = True
+    # Domain will be None when check_mode is true
+    if domain is None:
+      return {
+        'changed': changed,
+        'domain_name': {}
+      }
+
+  try:
+    patches = []
+    if cert_arn not in ['', None] and cert_arn != domain['certificateArn']:
+      patches.append({'op': 'replace', 'path': '/certificateArn', 'value': cert_arn})
+    if cert_name not in ['', None] and cert_name != self.me['certificateName']:
+      patches.append({'op': 'replace', 'path': '/certificateName', 'value': cert_name})
+
+    if patches:
+      changed = True
+
+      if not self.module.check_mode:
+        backoff_update_domain_name(client, name, patches)
+        domain_name = retrieve_domain_name(module, client, name)
+  except BotoCoreError as e:
+    self.module.fail_json(msg="Error when updating domain_name via boto3: {}".format(e))
+
+  return {
+    'changed': changed,
+    'domain_name': domain
+  }
+
+
+def retrieve_domain_name(module, client, name):
+  """
+  Retrieve domain name by provided name
+  :return: Result matching the provided domain name or an empty hash
+  """
+  resp = None
+  try:
+    resp = backoff_get_domain_name(client, name)
+
+  except botocore.exceptions.ClientError as e:
+    if 'NotFoundException' in e.message:
+      resp = None
+    else:
+      module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))
+  except BotoCoreError as e:
+    module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))
+
+  return resp
+
+
 if __name__ == '__main__':
     main()

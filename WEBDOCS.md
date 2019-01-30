@@ -39,12 +39,9 @@ Add, update, or remove DomainName resources
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
 | None | name |   yes  |  | |  The name of the DomainName resource on which to operate  |
-| None | cert_private_key |   no  |    | |  Certificate's private key. Required when C(state) is 'present'  |
-| None | cert_body |   no  |    | |  Body of the server certificate. Required when C(state) is 'present'  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should domain_name exist or not  |
-| None | cert_name |   no  |    | |  Name of the associated certificate. Required when C(state) is 'present'  |
-| None | cert_chain |   no  |    | |  Intermediate certificates and optionally the root certificate.  If root is included, it must follow the intermediate certificates. Required when C(state) is 'present'  |
-
+| None | cert_arn |   no  |    | |  ARN of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'  |
+| None | cert_name |   no  |    | |  Name of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'
 
  
 #### <a id="apigw_domain_name-examples"></a>Examples
@@ -57,10 +54,7 @@ Add, update, or remove DomainName resources
   - name: api key creation
     apigw_domain_name:
       name: testdomain.io.edu.mil
-      cert_name: 'test-cert'
-      cert_body: 'cert body'
-      cert_private_key: 'totally secure key'
-      cert_chain: 'sure, this is real'
+      cert_arn: 'arn:aws:acm:us-east-1:1234:certificate/12345ae'
       state: "{{ state | default('present') }}"
     register: dn
 
@@ -71,7 +65,7 @@ Add, update, or remove DomainName resources
 
 #### <a id="apigw_domain_name-notes"></a>Notes
 
-- This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
+- This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
 
 
 ---
