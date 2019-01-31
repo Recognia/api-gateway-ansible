@@ -229,14 +229,16 @@ def ensure_domain_name_present(module, client):
       changed = True
 
       if not self.module.check_mode:
-        backoff_update_domain_name(client, name, patches)
-        domain_name = retrieve_domain_name(module, client, name)
+        domain = backoff_update_domain_name(client, name, patches)
   except BotoCoreError as e:
     self.module.fail_json(msg="Error when updating domain_name via boto3: {}".format(e))
 
+  # Don't want response metadata. It's not documented as part of return, so not sure why it's here
+  domain.pop('ResponseMetadata', None)
+
   return {
     'changed': changed,
-    'domain_name': domain
+    'domain_name': camel_dict_to_snake_dict(domain)
   }
 
 
