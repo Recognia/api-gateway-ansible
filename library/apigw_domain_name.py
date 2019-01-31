@@ -150,7 +150,7 @@ def main():
     module.exit_json(**result)
 
 
-@AWSRetry.exponential_backoff()
+@AWSRetry.exponential_backoff(delay=15, max_delay=120)
 def backoff_create_domain_name(client, name, cert_arn, cert_name):
   if cert_arn is None:
     return client.create_domain_name(
