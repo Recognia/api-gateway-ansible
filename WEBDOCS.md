@@ -19,6 +19,7 @@
   * [apigw_stage - an ansible module to update or remove an apigateway stage](#apigw_stage)
   * [apigw_api_key - add, update, or remove apikey resources](#apigw_api_key)
   * [apigw_resource - add or remove resource resources](#apigw_resource)
+  * [apigw_vpc_link - add, update, or remove vpc link resources](#apigw_vpc_link)
 
 ---
 
@@ -754,6 +755,55 @@ Add or remove Resource resources
 #### <a id="apigw_resource-notes"></a>Notes
 
 - This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
+
+
+---
+
+## <a id="apigw_vpc_link"></a>apigw_vpc_link
+Add, update, or remove VPC link resources
+
+  * [Synopsis](#apigw_vpc_link-synopsis)
+  * [Options](#apigw_vpc_link-options)
+  * [Examples](#apigw_vpc_link-examples)
+  * [Notes](#apigw_vpc_link-notes)
+
+#### <a id="apigw_vpc_link-synopsis"></a>Synopsis
+* Uses domain name for identifying resources for CRUD operations
+* Update only covers certificate name
+
+#### <a id="apigw_vpc_link-options"></a>Options
+
+| Parent | Parameter     | required    | default  | choices    | comments |
+|--------| ------------- |-------------| ---------|----------- |--------- |
+| None | vpc_link_id |   yes  |  | |  The ID of the VPC link resource on which to operate  |
+| None | name |   yes  |  | |  The name of the VPC link resource; can be used instead of C(vpc_link_id) to identify the resource. Required to create new VPC link.
+| None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should domain_name exist or not  |
+| None | description |   no  |    | |  Description of the resource  |
+| None | target_arns |   no  |    | |  List of network load balancer ARNs. AWS only supports single ARN. Required to create new VPC link.
+
+ 
+#### <a id="apigw_vpc_link-examples"></a>Examples
+
+```
+---
+- hosts: localhost
+  gather_facts: False
+  tasks:
+  - name: VPC link creation
+    apigw_vpc_link:
+      name: my-link
+      target_arns: [ 'arn:aws:acm:us-east-1:1234:network/12345ae' ]
+      state: "{{ state | default('present') }}"
+    register: vl
+
+  - debug: var=vl
+
+```
+
+
+#### <a id="apigw_vpc_link-notes"></a>Notes
+
+- This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
 
 
 ---

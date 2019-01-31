@@ -17,6 +17,7 @@ the built-in AWS modules in ansible. The following resources have been
 refactored and any deprecated parameters removed:
 
 - Domain Name
+- VPC Link
 
 The following resources are completely or partially covered, but do not
 align with the ansible aws resources:
