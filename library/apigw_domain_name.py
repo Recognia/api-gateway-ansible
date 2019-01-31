@@ -129,15 +129,13 @@ def main():
 
     module = AnsibleAWSModule(
         argument_spec=argument_spec,
-        supports_check_mode=False,
+        supports_check_mode=True,
         mutually_exclusive=mutually_exclusive,
     )
 
     client = module.client('apigateway')
 
     state = module.params.get('state')
-
-    changed = True
 
     try:
       if state == "present":
@@ -222,16 +220,16 @@ def ensure_domain_name_present(module, client):
     patches = []
     if cert_arn not in ['', None] and cert_arn != domain['certificateArn']:
       patches.append({'op': 'replace', 'path': '/certificateArn', 'value': cert_arn})
-    if cert_name not in ['', None] and cert_name != self.me['certificateName']:
+    if cert_name not in ['', None] and cert_name != domain['certificateName']:
       patches.append({'op': 'replace', 'path': '/certificateName', 'value': cert_name})
 
     if patches:
       changed = True
 
-      if not self.module.check_mode:
+      if not module.check_mode:
         domain = backoff_update_domain_name(client, name, patches)
-  except BotoCoreError as e:
-    self.module.fail_json(msg="Error when updating domain_name via boto3: {}".format(e))
+  except botocore.exceptions.BotoCoreError as e:
+    module.fail_json(msg="Error when updating domain_name via boto3: {}".format(e))
 
   # Don't want response metadata. It's not documented as part of return, so not sure why it's here
   domain.pop('ResponseMetadata', None)
@@ -256,7 +254,7 @@ def retrieve_domain_name(module, client, name):
       resp = None
     else:
       module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))
-  except BotoCoreError as e:
+  except botocore.exceptions.BotoCoreError as e:
     module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))
 
   return resp
