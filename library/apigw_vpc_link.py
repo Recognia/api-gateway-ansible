@@ -187,7 +187,8 @@ def ensure_vpc_link_present(module, client):
         if vpc_link_id:
             module.fail_json_aws(e, msg="Couldn't find vpc link for id")
         changed = True
-        vpc_link = backoff_create_vpc_link(client, name, description, target_arns)
+        if not module.check_mode:
+            vpc_link = backoff_create_vpc_link(client, name, description, target_arns)
 
     else:
         patches = []
