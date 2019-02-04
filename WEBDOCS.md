@@ -655,7 +655,8 @@ Add, update, or remove ApiKey resources
 
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
-| None | name |   yes  |  | |  The domain name of the ApiKey resource on which to operate  |
+| None | id |   no  |  | |  The identifier of the ApiKey resource on which to operate. Either name or id is required  |
+| None | name |   no  |  | |  The domain name of the ApiKey resource on which to operate. Either name or id is required  |
 | None | generate_distinct_id |   no  |  False  | |  Specifies whether key identifier is distinct from created apikey value  |
 | None | enabled |   no  |  False  | |  Can ApiKey be used by called  |
 | None | value |   no  |    | |  Value of the api key. Required for create.  |

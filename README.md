@@ -16,13 +16,13 @@ The library is currently going under a refactoring to align better with
 the built-in AWS modules in ansible. The following resources have been
 refactored and any deprecated parameters removed:
 
+- API Key
 - Domain Name
 - VPC Link
 
 The following resources are completely or partially covered, but do not
 align with the ansible aws resources:
 
-- API Key
 - Authorizer
 - Base Path Mapping
 - Deployment
