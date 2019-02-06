@@ -18,7 +18,7 @@
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
-# Copyright (c) 2019 Malcolm studd
+# Copyright (c) 2019 Malcolm Studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -51,6 +51,8 @@ version_added: "2.2"
 options:
   id:
     description: The identifier of the api key on which to operate. Either C(name) or C(id) is required to identify the api key.
+    type: string
+    required: True
   name:
     description:
     - The domain name of the ApiKey resource on which to operate. Either C(name) or C(id) is required to identify the api key.
