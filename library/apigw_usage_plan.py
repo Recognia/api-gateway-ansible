@@ -6,6 +6,7 @@
 #
 # Authors:
 #  - Brian Felton <github: bjfelton>
+#  - Malcolm Studd <github: mestudd>
 #
 # apigw_usage_plan
 #    Manage creation, update, and removal of API Gateway UsagePlan resources
@@ -17,6 +18,7 @@
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
+# Copyright (c) 2019 Malcolm Studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -46,11 +48,15 @@ description:
 - Does not support updating name (see Notes)
 version_added: "2.2"
 options:
+  id:
+    description: The identifier of the usage plan on which to operate. Either C(name) or C(id) is required to identify the usage plan.
+    type: string
+    required: False
   name:
     description:
-    - The domain name of the UsagePlan resource on which to operate
+    - The name of the UsagePlan resource on which to operate. Required for create. Either C(name) or C(id) is required to identify the usage plan.
     type: string
-    required: True
+    required: False
   description:
     description:
     - UsagePlan description
@@ -74,6 +80,11 @@ options:
         - API stage name of the associated API stage in the usage plan
         type: string
         required: True
+  purge_api_stages:
+    description: If yes, existing api stages will be purged from the usage plan to match exactly what is defined by C(api_stages) parameter. If the C(api_stages) parameter is not set then api stages will not be modified.
+    type: bool
+    default: True
+    required: False
   throttle_burst_limit:
     description:
     - API request burst limit
@@ -85,6 +96,11 @@ options:
     - API request steady-state limit
     type: double
     default: -1.0
+    required: False
+  purge_throttle:
+    description: If yes, throttling will be purged from the usage plan if the C(throttle_burst_limit) and C(throttle_rate_limit) parameters are not set.
+    type: bool
+    default: True
     required: False
   quota_limit:
     description:
@@ -105,6 +121,11 @@ options:
     default: ''
     choices: ['', 'DAY', 'WEEK', 'MONTH']
     required: False
+  purge_quota:
+    description: If yes, quota will be purged from the usage plan if the C(quota_limit), C(quota_offset) and C(quota_period) parameters are not set.
+    type: bool
+    default: True
+    required: False
   state:
     description:
     - Should usage_plan exist or not
@@ -116,7 +137,6 @@ requirements:
     - boto
     - boto3
 notes:
-- While it is possible via the boto api to update the UsagePlan's name, this module does not support this functionality since it searches for the UsagePlan's id by its name.
 - This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
 '''
 
@@ -182,246 +202,284 @@ RETURN = '''
 
 __version__ = '${version}'
 
+
 try:
-  import boto3
-  import boto
-  from botocore.exceptions import BotoCoreError
-  HAS_BOTO3 = True
+    import botocore
 except ImportError:
-  HAS_BOTO3 = False
+    # HAS_BOTOCORE taken care of in AnsibleAWSModule
+    pass
 
-class ApiGwUsagePlan:
-  def __init__(self, module):
-    """
-    Constructor
-    """
-    self.module = module
-    if (not HAS_BOTO3):
-      self.module.fail_json(msg="boto and boto3 are required for this module")
-    self.client = boto3.client('apigateway')
-    self.param_map = {
-      'throttle_burst_limit': 'throttle/burstLimit',
-      'throttle_rate_limit': 'throttle/rateLimit',
-      'quota_offset': 'quota/offset',
-      'quota_limit': 'quota/limit',
-      'quota_period': 'quota/period',
-    }
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
-  @staticmethod
-  def _define_module_argument_spec():
-    """
-    Defines the module's argument spec
-    :return: Dictionary defining module arguments
-    """
-    return dict( name=dict(required=True),
-                 description=dict(required=False, default=''),
-                 api_stages=dict(
-                   type='list',
-                   required=False,
-                   default=[],
-                   rest_api_id=dict(required=True),
-                   stage=dict(required=True)
-                 ),
-                 throttle_burst_limit=dict(required=False, default=-1, type='int'),
-                 throttle_rate_limit=dict(required=False, default=-1.0, type='float'),
-                 quota_limit=dict(required=False, default=-1, type='int'),
-                 quota_offset=dict(required=False, default=-1, type='int'),
-                 quota_period=dict(required=False, default='', choices=['', 'DAY','WEEK','MONTH']),
-                 state=dict(default='present', choices=['present', 'absent']),
+param_map = {
+    'throttle_burst_limit': 'throttle/burstLimit',
+    'throttle_rate_limit': 'throttle/rateLimit',
+    'quota_offset': 'quota/offset',
+    'quota_limit': 'quota/limit',
+    'quota_period': 'quota/period',
+}
+
+argument_spec = dict(
+    name=dict(required=True),
+    description=dict(required=False, default=''),
+    api_stages=dict(
+        type='list',
+        required=False,
+        default=[],
+        rest_api_id=dict(required=True),
+        stage=dict(required=True)
+    ),
+    purge_api_stages=dict(required=False, type='bool', default=True),
+    throttle_burst_limit=dict(required=False, default=-1, type='int'),
+    throttle_rate_limit=dict(required=False, default=-1.0, type='float'),
+    purge_throttle=dict(required=False, type='bool', default=True),
+    quota_limit=dict(required=False, default=-1, type='int'),
+    quota_offset=dict(required=False, default=-1, type='int'),
+    quota_period=dict(required=False, default='', choices=['', 'DAY','WEEK','MONTH']),
+    purge_quota=dict(required=False, type='bool', default=True),
+    state=dict(default='present', choices=['present', 'absent']),
+)
+
+def main():
+    module = AnsibleAWSModule(
+        argument_spec=argument_spec,
+        supports_check_mode=True,
     )
 
-  def _retrieve_usage_plan(self):
+    client = module.client('apigateway')
+
+    state = module.params.get('state')
+
+    try:
+        if state == "present":
+            result = ensure_usage_plan_present(module, client)
+        elif state == 'absent':
+            result = ensure_usage_plan_absent(module, client)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json_aws(e)
+
+    module.exit_json(**result)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_create_usage_plan(client, args):
+    return client.create_usage_plan(**args)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_delete_usage_plan(client, usage_plan_id):
+    return client.delete_usage_plan(usagePlanId=usage_plan_id)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_usage_plan(client, usage_plan_id):
+    return client.get_usage_plan(
+        usagePlanId=usage_plan_id,
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_usage_plans(client):
+    return client.get_usage_plans(limit=500)
+
+
+@AWSRetry.exponential_backoff(delay=10)
+def backoff_update_usage_plan(client, usage_plan_id, patches):
+    return client.update_usage_plan(
+        usagePlanId=usage_plan_id,
+        patchOperations=patches
+    )
+
+
+def create_api_stages_remove_patches(old, leave):
+    patches = []
+    for stage in old:
+        if stage not in leave:
+            patches.append({'op': 'remove', 'path': '/apiStages', 'value': stage})
+
+    return patches
+
+def create_patches(module, usage_plan):
+    patches = []
+
+    def all_defaults(params_list):
+        is_default = False
+        for p in params_list:
+            is_default = is_default or is_default_value(p, module.params.get(p, None))
+
+        return is_default
+
+    def get_value(key):
+        entry = usage_plan
+        for k in key.split('/'):
+            entry = entry.get(k)
+            if entry is None:
+                break
+        return entry
+
+    def patch_field(f):
+        new = module.params.get(f, None)
+        key = param_map.get(f, f)
+        old = get_value(key)
+        if not is_default_value(f, new):
+            if old is None:
+                patches.append({'op': 'add', 'path': "/{}".format(key), 'value': str(new)})
+            elif old != new:
+                patches.append({'op': 'replace', 'path': "/{}".format(key), 'value': str(new)})
+
+    old_api_stages = [ "{0}:{1}".format(s['apiId'], s['stage'])
+            for s in usage_plan.get('apiStages', [])]
+    new_api_stages = [ "{0}:{1}".format(s['rest_api_id'], s['stage'])
+            for s in module.params.get('api_stages', [])]
+
+    # remove api stages first, in case they have throttling
+    if 'apiStages' in usage_plan and module.params.get('purge_api_stages'):
+        # FIXME: want to only remove un-listed api stages
+        patches.extend(create_api_stages_remove_patches(old_api_stages, new_api_stages))
+
+    # clear throttling and quota if they should be removed
+    if 'throttle' in usage_plan and module.params.get('purge_throttle'):
+        if all_defaults(['throttle_rate_limit', 'throttle_burst_limit']):
+            patches.append({'op': 'remove', 'path': "/throttle"})
+    if 'quota' in usage_plan and module.params.get('purge_quota'):
+        if all_defaults(['quota_limit', 'quota_offset', 'quota_period']):
+            patches.append({'op': 'remove', 'path': "/quota"})
+
+    # patch any new values
+    patch_field('description')
+
+    patch_field('quota_limit')
+    patch_field('quota_period')
+    patch_field('quota_offset')
+
+    patch_field('throttle_burst_limit')
+    patch_field('throttle_rate_limit')
+
+    # add new api stages
+    for stage in new_api_stages:
+        if stage not in old_api_stages:
+            patches.append({'op': 'add', 'path': '/apiStages', 'value': stage})
+
+    return patches
+
+
+def create_usage_plan(module, client):
+    args = dict(
+        name=module.params['name'],
+        apiStages=[],
+    )
+
+    for f in ['description','throttle_burst_limit','throttle_rate_limit','quota_limit','quota_period','quota_offset']:
+        if not is_default_value(f, module.params.get(f, None)):
+            boto_param = param_map.get(f, f)
+            if '/' in boto_param:
+                (p1, p2) = boto_param.split('/')
+                if p1 not in args:
+                    args[p1] = {}
+                args[p1].update({p2: module.params[f]})
+            else:
+                args[boto_param] = module.params[f]
+
+    for stage in module.params.get('api_stages', []):
+        args['apiStages'].append({'apiId': stage.get('rest_api_id'), 'stage': stage.get('stage')})
+    #print args
+
+    return backoff_create_usage_plan(client, args)
+
+
+def ensure_usage_plan_absent(module, client):
+    usage_plan = find_usage_plan(module, client)
+
+    if usage_plan is None:
+        return {'changed': False}
+
+    try:
+        if not module.check_mode:
+            # AWS requires removing all api stages prior to deleting
+            if 'apiStages' in usage_plan:
+                old_api_stages = [ "{0}:{1}".format(s['apiId'], s['stage'])
+                        for s in usage_plan.get('apiStages', [])]
+                patches = create_api_stages_remove_patches(old_api_stages, [])
+                if patches:
+                    backoff_update_usage_plan(client, usage_plan['id'], patches)
+            backoff_delete_usage_plan(client, usage_plan['id'])
+        return {'changed': True}
+    except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+        module.fail_json_aws(e, msg="Couldn't delete usage plan")
+
+
+def ensure_usage_plan_present(module, client):
+    changed = False
+    usage_plan_id = module.params.get('id')
+
+    usage_plan = find_usage_plan(module, client)
+
+    # Create new key
+    if not usage_plan:
+        if usage_plan_id:
+            module.fail_json_aws(e, msg="Couldn't find api key for id")
+        changed = True
+        if not module.check_mode:
+            usage_plan = create_usage_plan(module, client)
+
+    else:
+        patches = create_patches(module, usage_plan)
+        if patches:
+            changed = True
+            if not module.check_mode:
+                usage_plan = backoff_update_usage_plan(client, usage_plan['id'], patches)
+
+    # Don't want response metadata. It's not documented as part of return, so not sure why it's here
+    usage_plan.pop('ResponseMetadata', None)
+
+    return {
+        'changed': changed,
+        'usage_plan': camel_dict_to_snake_dict(usage_plan)
+    }
+
+
+def find_usage_plan(module, client):
     """
-    Retrieve all usage_plans in the account and match them against the provided name
-    :return: Result matching the provided api name or an empty hash
+    Retrieve usage plan by provided name
+    :return: Result matching the provided usage plan or None
     """
     resp = None
-    try:
-      get_resp = self.client.get_usage_plans()
+    name = module.params.get('name')
+    usage_plan_id = module.params.get('id')
 
-      for item in get_resp.get('items', []):
-        if item['name'] == self.module.params.get('name'):
-          resp = item
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when getting usage_plans from boto3: {}".format(e))
+    try:
+        if usage_plan_id:
+            # lookup by id
+            resp = backoff_get_usage_plan(client, usage_plan_id)
+        else:
+            # lookup by name
+            if not name:
+                module.fail_json(msg="Usage plan name or id is required")
+
+            all_plans = backoff_get_usage_plans(client)
+
+            for l in all_plans.get('items'):
+                if name == l.get('name'):
+                    resp = l
+
+    except botocore.exceptions.ClientError as e:
+        if 'NotFoundException' in e.message:
+            resp = None
+        else:
+            module.fail_json(msg="Error when getting usage plans from boto3: {}".format(e))
+    except botocore.exceptions.BotoCoreError as e:
+        module.fail_json(msg="Error when getting usage plans from boto3: {}".format(e))
 
     return resp
 
-  @staticmethod
-  def _build_api_stages_remove_patches(me):
-    patches = []
-    for entry in me.get('apiStages', []):
-      key = "{0}:{1}".format(entry['apiId'], entry['stage'])
-      patches.append({'op': 'remove', 'path': '/apiStages', 'value': key})
 
-    return patches
-
-  def _delete_usage_plan(self):
-    """
-    Delete usage_plan that matches the returned id
-    :return: True
-    """
-    try:
-      if not self.module.check_mode:
-        if 'apiStages' in self.me:
-          patches = ApiGwUsagePlan._build_api_stages_remove_patches(self.me)
-          if patches:
-            self.client.update_usage_plan(usagePlanId=self.me['id'], patchOperations=patches)
-
-        self.client.delete_usage_plan(usagePlanId=self.me['id'])
-      return True
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when deleting usage_plan via boto3: {}".format(e))
-
-  @staticmethod
-  def _is_default_value(param_name, param_value):
-    defaults = ApiGwUsagePlan._define_module_argument_spec()
-
-    if defaults[param_name].get('type', 'string') in ['int', 'float']:
-      return param_value < 0
+def is_default_value(param_name, param_value):
+    if argument_spec[param_name].get('type', 'string') in ['int', 'float']:
+        return param_value < 0
     else:
-      return param_value in [None, '']
+        return param_value in [None, '']
 
-  def _create_usage_plan(self):
-    """
-    Create usage_plan from provided args
-    :return: True, result from create_usage_plan
-    """
-    usage_plan = None
-    changed = False
 
-    try:
-      changed = True
-      if not self.module.check_mode:
-        args = dict(name=self.module.params['name'])
-
-        for f in ['description','throttle_burst_limit','throttle_rate_limit','quota_limit','quota_period','quota_offset']:
-          if not ApiGwUsagePlan._is_default_value(f, self.module.params.get(f, None)):
-            boto_param = self.param_map.get(f, f)
-            if '/' in boto_param:
-              (p1, p2) = boto_param.split('/')
-              if p1 not in args:
-                args[p1] = {}
-              args[p1].update({p2: self.module.params[f]})
-            else:
-              args[boto_param] = self.module.params[f]
-
-        for stage in self.module.params.get('api_stages', []):
-          if 'apiStages' not in args:
-            args['apiStages'] = []
-          args['apiStages'].append({'apiId': stage.get('rest_api_id'), 'stage': stage.get('stage')})
-
-        usage_plan = self.client.create_usage_plan(**args)
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when creating usage_plan via boto3: {}".format(e))
-
-    return (changed, usage_plan)
-
-  @staticmethod
-  def _all_defaults(ans_params, params_list):
-    is_default = False
-    for p in params_list:
-      is_default = is_default or ApiGwUsagePlan._is_default_value(p, ans_params.get(p, None))
-
-    return is_default
-
-  @staticmethod
-  def _create_patches(params, me, pmap):
-    patches = []
-
-    # delete ops
-    if 'throttle' in me and ApiGwUsagePlan._all_defaults(params, ['throttle_rate_limit','throttle_burst_limit']):
-      patches.append({'op': 'remove', 'path': "/throttle"})
-    if 'quota' in me and ApiGwUsagePlan._all_defaults(params, ['quota_limit','quota_offset','quota_period']):
-      patches.append({'op': 'remove', 'path': "/quota"})
-    if 'apiStages' in me and params.get('api_stages', []) == []:
-      patches.extend(ApiGwUsagePlan._build_api_stages_remove_patches(me))
-
-    # add/replace ops
-    for p in ['description','throttle_rate_limit','throttle_burst_limit','quota_limit','quota_offset','quota_period']:
-      boto_param = pmap.get(p, p)
-      if '/' in boto_param:
-        (parent, child) = boto_param.split('/')
-        if not ApiGwUsagePlan._is_default_value(p, params.get(p, None)):
-          if child not in me.get(parent, {}):
-            patches.append({'op': 'add', 'path': "/{}".format(boto_param), 'value': str(params[p])})
-          elif me[parent][child] != params[p]:
-            patches.append({'op': 'replace', 'path': "/{}".format(boto_param), 'value': str(params[p])})
-      else:
-        # must be description
-        if p not in me and params.get(p, '') in [None, '']:
-          pass
-        elif p in me and me[p] != params.get(p, ''):
-          patches.append({'op': 'replace', 'path': "/{}".format(boto_param), 'value': str(params.get(p, ''))})
-
-    # add handling for api_stages
-    api_stages = []
-    for stage in me.get('apiStages', []):
-      api_stages.append("{0}:{1}".format(stage['apiId'], stage['stage']))
-    for entry in params.get('api_stages', []):
-      key = "{0}:{1}".format(entry['rest_api_id'], entry['stage'])
-      if key not in api_stages:
-        patches.append({'op': 'add', 'path': '/apiStages', 'value': key})
-
-    return patches
-
-  def _update_usage_plan(self):
-    """
-    Create usage_plan from provided args
-    :return: True, result from create_usage_plan
-    """
-    usage_plan = self.me
-    changed = False
-
-    try:
-      patches = ApiGwUsagePlan._create_patches(self.module.params, self.me, self.param_map)
-      if patches:
-        changed = True
-
-        if not self.module.check_mode:
-          self.client.update_usage_plan(
-            usagePlanId=self.me['id'],
-            patchOperations=patches
-          )
-          usage_plan = self._retrieve_usage_plan()
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when updating usage_plan via boto3: {}".format(e))
-
-    return (changed, usage_plan)
-
-  def process_request(self):
-    """
-    Process the user's request -- the primary code path
-    :return: Returns either fail_json or exit_json
-    """
-
-    usage_plan = None
-    changed = False
-    self.me = self._retrieve_usage_plan()
-
-    if self.module.params.get('state', 'present') == 'absent' and self.me is not None:
-      changed = self._delete_usage_plan()
-    elif self.module.params.get('state', 'present') == 'present':
-      if self.me is None:
-        (changed, usage_plan) = self._create_usage_plan()
-      else:
-        (changed, usage_plan) = self._update_usage_plan()
-
-    self.module.exit_json(changed=changed, usage_plan=usage_plan)
-
-def main():
-    """
-    Instantiates the module and calls process_request.
-    :return: none
-    """
-    module = AnsibleModule(
-        argument_spec=ApiGwUsagePlan._define_module_argument_spec(),
-        supports_check_mode=True
-    )
-
-    usage_plan = ApiGwUsagePlan(module)
-    usage_plan.process_request()
-
-from ansible.module_utils.basic import *  # pylint: disable=W0614
 if __name__ == '__main__':
     main()

@@ -365,7 +365,7 @@ Add, update, or remove UsagePlan and UsagePlanKey resources
 
 #### <a id="apigw_usage_plan-synopsis"></a>Synopsis
 * Basic CRUD operations on Usage Plan Key resources
-* Does not support updating name (see Notes)
+* Does not support per-stage throttling
 
 #### <a id="apigw_usage_plan-options"></a>Options
 
@@ -374,13 +374,16 @@ Add, update, or remove UsagePlan and UsagePlanKey resources
 | None | quota_offset |   no  |  -1  | |  Number of requests subtracted from the given limit in the initial time period  |
 | None | name |   yes  |  | |  The domain name of the UsagePlan resource on which to operate  |
 | None | quota_limit |   no  |  -1  | |  Maxiumum number of requests that can be made in a given time period  |
+| None | quota_period |   no  |    | <ul> <li></li>  <li>DAY</li>  <li>WEEK</li>  <li>MONTH</li> </ul> |  The time period in which the limit applies  |
+| None | purge_quota |   no  | True   | |  Whether to purge quota if values unset  |
 | None | throttle_burst_limit |   no  |  -1  | |  API request burst limit  |
 | None | throttle_rate_limit |   no  |  -1.0  | |  API request steady-state limit  |
-| None | quota_period |   no  |    | <ul> <li></li>  <li>DAY</li>  <li>WEEK</li>  <li>MONTH</li> </ul> |  The time period in which the limit applies  |
+| None | purge_throttle |   no  | True   | |  Whether to purge throttling if values unset  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should usage_plan exist or not  |
 | None | api_stages |   no  |  []  | |  List of associated api stages  |
 | api_stages | rest_api_id |   yes  |  | |  ID of the associated API stage in the usage plan  |
 | api_stages | stage |   yes  |  | |  API stage name of the associated API stage in the usage plan  |
+| None | purge_api_stages |   no  | True   | |  Whether to purge unlisted api stages  |
 | None | description |   no  |    | |  UsagePlan description  |
 
 
