@@ -167,7 +167,7 @@ def ensure_vpc_link_absent(module, client):
 
     try:
         if not module.check_mode:
-            backoff_delete_vpc_link(client, vpc_link.vpc_link_id)
+            backoff_delete_vpc_link(client, vpc_link['id'])
         return {'changed': True}
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Couldn't delete vpc link")
