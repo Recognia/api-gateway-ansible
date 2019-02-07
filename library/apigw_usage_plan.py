@@ -11,9 +11,6 @@
 # apigw_usage_plan
 #    Manage creation, update, and removal of API Gateway UsagePlan resources
 #
-# NOTE: While it is possible via the boto api to update the UsagePlan's name,
-#       this module does not support this functionality since it searches
-#       for the UsagePlan's id by its name.
 
 # MIT License
 #

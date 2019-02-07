@@ -11,9 +11,6 @@
 # apigw_api_key
 #    Manage creation, update, and removal of API Gateway ApiKey resources
 #
-# NOTE: While it is possible via the boto api to update the ApiKey's name,
-#       this module does not support this functionality since it searches
-#       for the ApiKey's id by its name.
 
 # MIT License
 #
@@ -237,7 +234,7 @@ def ensure_api_key_absent(module, client):
 
     try:
         if not module.check_mode:
-            backoff_delete_api_key(client, api_key.id)
+            backoff_delete_api_key(client, api_key['id'])
         return {'changed': True}
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Couldn't delete api key")
