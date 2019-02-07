@@ -6,6 +6,7 @@
 #
 # Authors:
 #  - Brian Felton <github: bjfelton>
+#  - Malcolm Studd <github: mestudd>
 #
 # apigw_usage_plan_key
 #    Manage creation and removal of API Gateway UsagePlanKey resources
@@ -14,6 +15,7 @@
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
+# Copyright (c) 2019 Malcolm Studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -42,14 +44,24 @@ description:
 - Create or remove Usage Plan Key resources
 version_added: "2.2"
 options:
+  usage_plan:
+    description:
+    - Name of the UsagePlan resource to which a key will be associated. Either C(usage_plan) or C(usage_plan_id) is required.
+    type: string
+    required: False
   usage_plan_id:
     description:
-    - Id of the UsagePlan resource to which a key will be associated
+    - Id of the UsagePlan resource to which a key will be associated. Either C(usage_plan) or C(usage_plan_id) is required.
+    type: string
+    required: False
+  api_key_id:
+    description:
+    - Id of the api key resource to which a key will be associated. Either C(api_key) or C(api_key_id) is required.
     type: string
     required: True
   api_key_id:
     description:
-    - Id of the UsagePlan resource to which a key will be associated
+    - Id of the api key resource to which a key will be associated. Either C(api_key) or C(api_key_id) is required.
     type: string
     required: True
   key_type:
@@ -113,122 +125,168 @@ RETURN = '''
 
 __version__ = '${version}'
 
+
 try:
-  import boto3
-  import boto
-  from botocore.exceptions import BotoCoreError
-  HAS_BOTO3 = True
+    import botocore
 except ImportError:
-  HAS_BOTO3 = False
+    # HAS_BOTOCORE taken care of in AnsibleAWSModule
+    pass
 
-class ApiGwUsagePlanKey:
-  def __init__(self, module):
-    """
-    Constructor
-    """
-    self.module = module
-    if (not HAS_BOTO3):
-      self.module.fail_json(msg="boto and boto3 are required for this module")
-    self.client = boto3.client('apigateway')
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
-  @staticmethod
-  def _define_module_argument_spec():
-    """
-    Defines the module's argument spec
-    :return: Dictionary defining module arguments
-    """
-    return dict( usage_plan_id=dict(required=True),
-                 api_key_id=dict(required=True),
-                 key_type=dict(required=False, default='API_KEY', choices=['API_KEY']),
-                 state=dict(default='present', choices=['present', 'absent']),
+def main():
+    argument_spec = dict(
+        api_key_id=dict(required=False),
+        api_key=dict(required=False),
+        usage_plan_id=dict(required=False),
+        usage_plan=dict(required=False),
+        key_type=dict(required=False, default='API_KEY', choices=['API_KEY']),
+        state=dict(default='present', choices=['present', 'absent']),
     )
 
-  def _retrieve_usage_plan_key(self):
-    """
-    Retrieve all usage_plan_keys in the account and match them against the provided name
-    :return: Result matching the provided api name or an empty hash
-    """
-    resp = None
-    try:
-      get_resp = self.client.get_usage_plan_keys(usagePlanId=self.module.params['usage_plan_id'])
+    mutually_exclusive = [['api_key', 'api_key_id'], ['usage_plan', 'usage_plan_id']]
 
-      for item in get_resp.get('items', []):
-        if item['id'] == self.module.params.get('api_key_id'):
-          resp = item
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when getting usage_plan_keys from boto3: {}".format(e))
+    module = AnsibleAWSModule(
+        argument_spec=argument_spec,
+        mutually_exclusive=mutually_exclusive,
+        supports_check_mode=True,
+    )
+
+    client = module.client('apigateway')
+
+    state = module.params.get('state')
+
+    api_key_id = module.params.get('api_key_id')
+    if api_key_id in ['', None]:
+        api_key_id = find_api_key(module, client)
+
+    usage_plan_id = module.params.get('usage_plan_id')
+    if usage_plan_id in ['', None]:
+        usage_plan_id = find_usage_plan(module, client)
+
+    try:
+        if state == "present":
+            result = ensure_usage_plan_key_present(module, client, api_key_id, usage_plan_id)
+        elif state == 'absent':
+            result = ensure_usage_plan_key_absent(module, client, api_key_id, usage_plan_id)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json_aws(e)
+
+    module.exit_json(**result)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_create_usage_plan_key(client, api_key_id, usage_plan_id, key_type):
+    return client.create_usage_plan_key(
+        keyId=api_key_id,
+        usagePlanId=usage_plan_id,
+        keyType=key_type,
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_delete_usage_plan_key(client, api_key_id, usage_plan_id):
+    return client.delete_usage_plan_key(
+        keyId=api_key_id,
+        usagePlanId=usage_plan_id,
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_api_keys(client, name):
+    return client.get_api_keys(nameQuery=name)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_usage_plans(client):
+    return client.get_usage_plans(limit=500)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_usage_plan_key(client, api_key_id, usage_plan_id):
+    try:
+        return client.get_usage_plan_key(
+            keyId=api_key_id,
+            usagePlanId=usage_plan_id,
+        )
+    except botocore.exceptions.ClientError as e:
+        if 'NotFoundException' in e.message:
+            return None
+        else:
+            module.fail_json_aws(e, msg="Error when getting usage plan key from boto3")
+    except botocore.exceptions.BotoCoreError as e:
+        module.fail_json_aws(e, msg="Error when getting usage plan key from boto3")
+
+
+def ensure_usage_plan_key_absent(module, client, api_key_id, usage_plan_id):
+    usage_plan_key = backoff_get_usage_plan_key(client, api_key_id, usage_plan_id)
+
+    if usage_plan_key is None:
+        return {'changed': False}
+
+    try:
+        if not module.check_mode:
+            backoff_delete_usage_plan_key(client, api_key_id, usage_plan_id)
+        return {'changed': True}
+    except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+        module.fail_json_aws(e, msg="Couldn't delete usage plan key")
+
+
+def ensure_usage_plan_key_present(module, client, api_key_id, usage_plan_id):
+    changed = False
+
+    usage_plan_key = backoff_get_usage_plan_key(client, api_key_id, usage_plan_id)
+    key_type = module.params.get('key_type')
+
+    if usage_plan_key is None:
+        try:
+            changed = True
+            if not module.check_mode:
+                usage_plan_key = backoff_create_usage_plan_key(client, api_key_id, usage_plan_id, key_type)
+        except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+            module.fail_json_aws(e, msg="Couldn't add usage plan key")
+
+    # Don't want response metadata. It's not documented as part of return, so not sure why it's here
+    usage_plan_key.pop('ResponseMetadata', None)
+
+    return {
+        'changed': changed,
+        'usage_plan_key': camel_dict_to_snake_dict(usage_plan_key),
+    }
+
+
+def find_api_key(module, client):
+    resp = None
+    name = module.params.get('api_key')
+
+    if not name:
+        module.fail_json(msg="Api key name or id is required")
+
+    all_keys = backoff_get_api_keys(client, name)
+
+    for l in all_keys.get('items'):
+        if name == l.get('name'):
+            resp = l.get('id')
 
     return resp
 
-  def _delete_usage_plan_key(self):
-    """
-    Delete usage_plan_key that matches the returned id
-    :return: True
-    """
-    try:
-      if not self.module.check_mode:
-        self.client.delete_usage_plan_key(
-          usagePlanId=self.module.params['usage_plan_id'],
-          keyId=self.module.params['api_key_id']
-        )
-      return True
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when deleting usage_plan_key via boto3: {}".format(e))
 
-  def _create_usage_plan_key(self):
-    """
-    Create usage_plan_key from provided args
-    :return: True, result from create_usage_plan_key
-    """
-    usage_plan_key = None
-    changed = False
+def find_usage_plan(module, client):
+    resp = None
+    name = module.params.get('usage_plan')
 
-    try:
-      changed = True
-      if not self.module.check_mode:
-        usage_plan_key = self.client.create_usage_plan_key(
-          usagePlanId=self.module.params['usage_plan_id'],
-          keyId=self.module.params['api_key_id'],
-          keyType=self.module.params.get('key_type')
-        )
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when creating usage_plan_key via boto3: {}".format(e))
+    if not name:
+        module.fail_json(msg="Usage plan name or id is required")
 
-    return (changed, usage_plan_key)
+    all_plans = backoff_get_usage_plans(client)
 
-  def process_request(self):
-    """
-    Process the user's request -- the primary code path
-    :return: Returns either fail_json or exit_json
-    """
+    for l in all_plans.get('items'):
+        if name == l.get('name'):
+            resp = l.get('id')
 
-    usage_plan_key = None
-    changed = False
-    self.me = self._retrieve_usage_plan_key()
+    return resp
 
-    if self.module.params.get('state', 'present') == 'absent' and self.me is not None:
-      changed = self._delete_usage_plan_key()
-    elif self.module.params.get('state', 'present') == 'present':
-      if self.me is None:
-        (changed, usage_plan_key) = self._create_usage_plan_key()
-      else:
-        usage_plan_key = self.me
 
-    self.module.exit_json(changed=changed, usage_plan_key=usage_plan_key)
-
-def main():
-    """
-    Instantiates the module and calls process_request.
-    :return: none
-    """
-    module = AnsibleModule(
-        argument_spec=ApiGwUsagePlanKey._define_module_argument_spec(),
-        supports_check_mode=True
-    )
-
-    usage_plan_key = ApiGwUsagePlanKey(module)
-    usage_plan_key.process_request()
-
-from ansible.module_utils.basic import *  # pylint: disable=W0614
 if __name__ == '__main__':
     main()
