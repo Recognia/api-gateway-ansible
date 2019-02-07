@@ -189,7 +189,10 @@ def ensure_domain_name_absent(module, client):
   try:
     if not module.check_mode:
       backoff_delete_domain_name(client, name)
-    return {'changed': True}
+    return {
+        'changed': True,
+        'domain_name': camel_dict_to_snake_dict(domain)
+    }
   except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
     module.fail_json_aws(e, msg="Couldn't delete domain name")
 
