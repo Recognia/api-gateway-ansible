@@ -237,7 +237,7 @@ class ApiGwUsagePlan:
     """
     resp = None
     try:
-      get_resp = self.client.get_usage_plans()
+      get_resp = self.client.get_usage_plans(limit=500)
 
       for item in get_resp.get('items', []):
         if item['name'] == self.module.params.get('name'):
