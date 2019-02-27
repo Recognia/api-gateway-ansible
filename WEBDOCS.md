@@ -8,17 +8,17 @@
 ---
 ### Modules
 
-  * [apigw_domain_name - add, update, or remove domainname resources](#apigw_domain_name)
-  * [apigw_base_path_mapping - add, update, or remove base path mapping resources](#apigw_base_path_mapping)
-  * [apigw_rest_api - add, update, or remove rest api resources](#apigw_rest_api)
-  * [apigw_deployment - create an apigateway deployment](#apigw_deployment)
-  * [apigw_usage_plan_key - add or remove usageplankey resources](#apigw_usage_plan_key)
-  * [apigw_authorizer - add, update, or remove authorizer resources](#apigw_authorizer)
-  * [apigw_usage_plan - add, update, or remove usageplan and usageplankey resources](#apigw_usage_plan)
-  * [apigw_method - add, update, or remove aws api gateway method resources](#apigw_method)
-  * [apigw_stage - an ansible module to update or remove an apigateway stage](#apigw_stage)
   * [apigw_api_key - add, update, or remove apikey resources](#apigw_api_key)
+  * [apigw_authorizer - add, update, or remove authorizer resources](#apigw_authorizer)
+  * [apigw_base_path_mapping - add, update, or remove base path mapping resources](#apigw_base_path_mapping)
+  * [apigw_deployment - create an apigateway deployment](#apigw_deployment)
+  * [apigw_domain_name - add, update, or remove domainname resources](#apigw_domain_name)
+  * [apigw_method - add, update, or remove aws api gateway method resources](#apigw_method)
   * [apigw_resource - add or remove resource resources](#apigw_resource)
+  * [apigw_rest_api - add, update, or remove rest api resources](#apigw_rest_api)
+  * [apigw_stage - an ansible module to update or remove an apigateway stage](#apigw_stage)
+  * [apigw_usage_plan - add, update, or remove usageplan and usageplankey resources](#apigw_usage_plan)
+  * [apigw_usage_plan_key - add or remove usageplankey resources](#apigw_usage_plan_key)
   * [apigw_vpc_link - add, update, or remove vpc link resources](#apigw_vpc_link)
 
 ---
