@@ -20,6 +20,7 @@
   * [apigw_usage_plan - add, update, or remove usageplan and usageplankey resources](#apigw_usage_plan)
   * [apigw_usage_plan_key - add or remove usageplankey resources](#apigw_usage_plan_key)
   * [apigw_vpc_link - add, update, or remove vpc link resources](#apigw_vpc_link)
+  * [apigw_vpc_link_facts - find vpc link resources](#apigw_vpc_link_facts)
 
 ---
 
@@ -808,6 +809,46 @@ Add, update, or remove VPC link resources
 
 
 #### <a id="apigw_vpc_link-notes"></a>Notes
+
+- This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
+
+
+---
+
+## <a id="apigw_vpc_link_facts"></a>apigw_vpc_link_facts
+Find VPC link resources
+
+  * [Synopsis](#apigw_vpc_link_facts-synopsis)
+  * [Options](#apigw_vpc_link_facts-options)
+  * [Examples](#apigw_vpc_link_facts-examples)
+  * [Notes](#apigw_vpc_link_facts-notes)
+
+#### <a id="apigw_vpc_link_facts-synopsis"></a>Synopsis
+An Ansible module to list VPC links.
+
+#### <a id="apigw_vpc_link_facts-options"></a>Options
+
+This module takes no specific parameters as the underlying AWS call has no parameters.
+
+ 
+#### <a id="apigw_vpc_link_facts-examples"></a>Examples
+
+```
+---
+- hosts: localhost
+  gather_facts: False
+  tasks:
+  - name: VPC link creation
+    apigw_vpc_link_facts:
+      region: "us-east-1"
+    register: vl
+
+  - debug: var=vl
+
+```
+
+
+#### <a id="apigw_vpc_link_facts-notes"></a>Notes
 
 - This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
 
