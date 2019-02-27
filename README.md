@@ -20,6 +20,7 @@ refactored and any deprecated parameters removed:
 - Domain Name
 - VPC Link
 - Usage Plan
+- Usage Plan Key
 
 The following resources are completely or partially covered, but do not
 align with the ansible aws resources:
@@ -31,7 +32,6 @@ align with the ansible aws resources:
 - Resource
 - REST API
 - Stage
-- Usage Plan Key
 
 ## Gaps
 

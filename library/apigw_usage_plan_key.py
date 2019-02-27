@@ -54,16 +54,16 @@ options:
     - Id of the UsagePlan resource to which a key will be associated. Either C(usage_plan) or C(usage_plan_id) is required.
     type: string
     required: False
+  api_key:
+    description:
+    - Name of the api key resource to which a key will be associated. Either C(api_key) or C(api_key_id) is required.
+    type: string
+    required: False
   api_key_id:
     description:
     - Id of the api key resource to which a key will be associated. Either C(api_key) or C(api_key_id) is required.
     type: string
-    required: True
-  api_key_id:
-    description:
-    - Id of the api key resource to which a key will be associated. Either C(api_key) or C(api_key_id) is required.
-    type: string
-    required: True
+    required: False
   key_type:
     description:
     - Type of the api key.  You can choose any value you like, so long as you choose 'API_KEY'.

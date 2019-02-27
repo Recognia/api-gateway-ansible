@@ -260,8 +260,10 @@ Add or remove UsagePlanKey resources
 |--------| ------------- |-------------| ---------|----------- |--------- |
 | None | key_type |   no  |  API_KEY  | <ul> <li>API_KEY</li> </ul> |  Type of the api key.  You can choose any value you like, so long as you choose 'API_KEY'.  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should usage_plan_key exist or not  |
-| None | usage_plan_id |   yes  |  | |  Id of the UsagePlan resource to which a key will be associated  |
-| None | api_key_id |   yes  |  | |  Id of the UsagePlan resource to which a key will be associated  |
+| None | usage_plan |   no  |  | |  Name of the usage plan resource to which a key will be associated  |
+| None | usage_plan_id |   no  |  | |  Id of the usage plan resource to which a key will be associated  |
+| None | api_key |   no  |  | |  Name of the api key resource to which a usage plan will be associated  |
+| None | api_key_id |   no  |  | |  Id of the api key resource to which a usage plan will be associated  |
 
 
  
