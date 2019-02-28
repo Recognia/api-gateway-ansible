@@ -154,7 +154,8 @@ from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
 def main():
     argument_spec = dict(
-        name=dict(required=True, type='str'),
+        name=dict(required=False, type='str'),
+        id=dict(required=False, type='str'),
         description=dict(required=False, type='str'),
         value=dict(required=False, type='str'),
         enabled=dict(required=False, type='bool', default=False),
