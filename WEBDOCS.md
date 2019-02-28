@@ -140,8 +140,17 @@ Add, update, or remove REST API resources
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Determine whether to assert if api should exist or not  |
-| None | name |   yes  |  | |  The name of the rest api on which to operate  |
+| None | id |   no  |  | |  The name of the rest api on which to operate. Either id or name is required.  |
+| None | name |   no  |  | |  The name of the rest api on which to operate. Either id or name is required.  |
+| None | api_key_source |   no  | <ul> <li>HEADER</li> <li>AUTHORIZER</li> </ul> | |  The source of the API key for metering requests according to a usage plan.  |
+| None | binary_media_types |   no  |  | |  The list of binary media types supported by the RestApi.  |
+| None | clone_from |   no  |  | |  The name or id of a rest api to clone from (only if rest api is created).  |
 | None | description |   no  |  | |  A description for the rest api  |
+| None | endpoint_configuration |   no  |  | |  The endpoint configuration of this RestApi showing the endpoint types of the API.  |
+| endpoint_configuration | types |   no  |  | <ul> <li>EDGE</li> <li>REGIONAL</li> <li>PRIVATE</li> </ul> |  The list of endpoint types.  |
+| None | minimum_compression_size |   no  |  | |  Enable compression with a payload size larger than this value.  |
+| None | policy |   no  |  | |  A stringified JSON policy document that applies to this RestApi regardless of the caller and Method configuration.  |
+| None | version |   no  |  | |  A version identifier for the API.  |
 
 
  
@@ -157,6 +166,26 @@ Add, update, or remove REST API resources
       apigw_rest_api:
         name: 'docs.example.io'
         description: 'stolen straight from the docs'
+        state: present
+      register: api
+
+    - name: debug
+      debug: var=api
+
+- name: Update rest api to Api Gateway
+  hosts: localhost
+  gather_facts: False
+  connection: local
+  tasks:
+    - name: Create rest api
+      apigw_rest_api:
+        name: 'docs.example.io'
+        api_key_source: 'AUTHORIZER'
+        endpoint_configuration:
+          types:
+            - 'PRIVATE'
+        minimum_compression_size: 3500
+        version: '1.0.1'
         state: present
       register: api
 

@@ -18,6 +18,7 @@ refactored and any deprecated parameters removed:
 
 - API Key
 - Domain Name
+- REST API
 - VPC Link
 - Usage Plan
 - Usage Plan Key
@@ -30,7 +31,6 @@ align with the ansible aws resources:
 - Deployment
 - Method (including all four stages)
 - Resource
-- REST API
 - Stage
 
 ## Gaps
