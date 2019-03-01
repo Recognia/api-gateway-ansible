@@ -88,7 +88,8 @@ Add, update, or remove Base Path Mapping resources
 
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
-| None | rest_api_id |   no  |    | |  The id of the Rest API to which this BasePathMapping belongs.  Required to create a base path mapping.  |
+| None | rest_api |   no  |    | |  The name of the Rest API to which this BasePathMapping belongs.  Either C(rest_api) or C(rest_api_id) required to create a base path mapping.  |
+| None | rest_api_id |   no  |    | |  The id of the Rest API to which this BasePathMapping belongs.  Either C(rest_api) or C(rest_api_id) required to create a base path mapping.  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should base_path_mapping exist or not  |
 | None | name |   yes  |  | |  The domain name of the Base Path Mapping resource on which to operate  |
 | None | base_path |   no  |  (none)  | |  The base path name that callers of the api must provide.  Required when updating or deleting the mapping.  |

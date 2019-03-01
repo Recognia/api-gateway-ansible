@@ -6,6 +6,7 @@
 #
 # Authors:
 #  - Brian Felton <github: bjfelton>
+#  - Malcolm Studd <github: mestudd>
 #
 # apigw_base_path_mapping
 #    Manage creation, update, and removal of API Gateway Base Path Mapping resources
@@ -14,6 +15,7 @@
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
+# Copyright (c) 2019 Malcolm Studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -107,167 +109,155 @@ RETURN = '''
 
 __version__ = '${version}'
 
+
 try:
-  import boto3
-  import boto
-  from botocore.exceptions import BotoCoreError
-  HAS_BOTO3 = True
+    import botocore
 except ImportError:
-  HAS_BOTO3 = False
+    # HAS_BOTOCORE taken care of in AnsibleAWSModule
+    pass
 
-class ApiGwBasePathMapping:
-  def __init__(self, module):
-    """
-    Constructor
-    """
-    self.module = module
-    if (not HAS_BOTO3):
-      self.module.fail_json(msg="boto and boto3 are required for this module")
-    self.client = boto3.client('apigateway')
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
-  @staticmethod
-  def _define_module_argument_spec():
-    """
-    Defines the module's argument spec
-    :return: Dictionary defining module arguments
-    """
-    return dict( name=dict(required=True, aliases=['domain_name']),
-                 rest_api_id=dict(required=False),
-                 base_path=dict(required=False, default='(none)'),
-                 stage=dict(required=False),
-                 state=dict(default='present', choices=['present', 'absent']),
+def main():
+    argument_spec = dict(
+        name=dict(required=True, aliases=['domain_name']),
+        rest_api_id=dict(required=False),
+        rest_api=dict(required=False),
+        base_path=dict(required=False, default='(none)'),
+        stage=dict(required=False),
+        state=dict(default='present', choices=['present', 'absent']),
     )
 
-  def _retrieve_base_path_mapping(self):
-    """
-    Retrieve all base_path_mappings in the account and match them against the provided name
-    :return: Result matching the provided api name or an empty hash
-    """
-    resp = None
-    try:
-      get_resp = self.client.get_base_path_mappings(domainName=self.module.params['name'])
+    module = AnsibleAWSModule(
+        argument_spec=argument_spec,
+        supports_check_mode=True,
+    )
 
-      for item in get_resp.get('items', []):
-        if item['basePath'] == self.module.params.get('base_path', '(none)'):
-          resp = item
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when getting base_path_mappings from boto3: {}".format(e))
+    client = module.client('apigateway')
+
+    state = module.params.get('state')
+    name = module.params.get('name')
+    path = module.params.get('base_path')
+
+    base_path_mapping = backoff_get_base_path_mapping(client, name, path)
+
+    try:
+        if state == "present":
+            rest_api_id = module.params.get('rest_api_id')
+            if rest_api_id in ['', None]:
+                rest_api_id = find_rest_api(module, client)
+            result = ensure_base_path_mapping_present(module, client, base_path_mapping, name, rest_api_id)
+
+        elif state == 'absent':
+            result = ensure_base_path_mapping_absent(module, client, base_path_mapping, name)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json_aws(e)
+
+    module.exit_json(**result)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_create_base_path_mapping(client, name, path):
+    return client.create_base_path_mapping(
+        domainName=name,
+        basePath=path,
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_delete_base_path_mapping(client, name, path):
+    return client.delete_base_path_mapping(
+        domainName=name,
+        basePath=path,
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_base_path_mapping(client, name, path):
+    return client.get_base_path_mapping(
+        domainName=name,
+        basePath=path,
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_update_base_path_mapping(client, name, path, patches):
+    return client.update_base_path_mapping(
+        domainName=name,
+        basePath=path,
+        patchOperations=patches
+    )
+
+
+def ensure_base_path_mapping_absent(module, client, base_path_mapping, name):
+    if base_path_mapping is None:
+        return {'changed': False}
+
+    try:
+        if not module.check_mode:
+            backoff_delete_usage_plan_key(client, name, base_path_mapping['basePath'])
+        return {'changed': True}
+    except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+        module.fail_json_aws(e, msg="Couldn't delete usage plan key")
+
+
+def ensure_base_path_mapping_present(module, client, base_path_mapping, name, rest_api_id):
+    changed = False
+    path = module.params.get('base_path', '(none)')
+    stage = module.params.get('stage', None)
+
+    if not base_path_mapping:
+        raise ValueError('creating!')
+        changed = True
+        args = dict(
+            domainName = name,
+            restApiId = rest_api_id,
+            basePath = path,
+        )
+        if stage is not None and stage != '':
+            args['stage'] = stage
+
+        if not module.check_mode:
+            base_path_mapping = backoff_create_base_path_mapping(client, args)
+
+    else:
+        patches = []
+        if rest_api_id not in [ '', None ] and rest_api_id != base_path_mapping['restApiId']:
+            # Yay for consistency. Thanks, amazon!
+            patches.append({'op': 'replace', 'path': '/restapiId', 'value': rest_api_id})
+        if stage != '' and stage is not None and stage != base_path_mapping['stage']:
+            patches.append({'op': 'replace', 'path': '/stage', 'value': stage})
+
+        if patches:
+            changed = True
+            if not module.check_mode:
+                base_path_mapping = backoff_update_base_path_mapping(client, name, path, patches)
+
+    # Don't want response metadata. It's not documented as part of return, so not sure why it's here
+    base_path_mapping.pop('ResponseMetadata', None)
+
+    return {
+        'changed': changed,
+        'base_path_mapping': camel_dict_to_snake_dict(base_path_mapping),
+    }
+
+
+def find_rest_api(module, client):
+    resp = None
+    name = module.params.get('rest_api')
+
+    if not name:
+        module.fail_json(msg="Rest api name or id is required")
+
+    all_apis = backoff_get_rest_apis(client)
+
+    for l in all_apis.get('items'):
+        if name == l.get('name'):
+            resp = l.get('id')
 
     return resp
 
-  def _delete_base_path_mapping(self):
-    """
-    Delete base_path_mapping that matches the returned id
-    :return: True
-    """
-    try:
-      if not self.module.check_mode:
-        self.client.delete_base_path_mapping(
-          domainName=self.module.params['name'],
-          basePath=self.module.params['base_path']
-        )
-      return True
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when deleting base_path_mapping via boto3: {}".format(e))
 
-  def _create_base_path_mapping(self):
-    """
-    Create base_path_mapping from provided args
-    :return: True, result from create_base_path_mapping
-    """
-    bpm = None
-    changed = False
-
-    if self.module.params.get('rest_api_id', None) is None:
-      self.module.fail_json(msg="Field 'rest_api_id' is required when attempting to create a Base Path Mapping resource")
-
-    else:
-      try:
-        changed = True
-        if not self.module.check_mode:
-          args = dict(
-            domainName=self.module.params['name'],
-            restApiId=self.module.params['rest_api_id'],
-            basePath=self.module.params.get('base_path', '(none)'),
-          )
-
-          stage = self.module.params.get('stage', None)
-          if stage is not None and stage != '':
-            args['stage'] = stage
-
-          bpm = self.client.create_base_path_mapping(**args)
-      except BotoCoreError as e:
-        self.module.fail_json(msg="Error when creating base_path_mapping via boto3: {}".format(e))
-
-    return (changed, bpm)
-
-  @staticmethod
-  def _create_patches(params, me):
-    patches = []
-
-    stage = params.get('stage', '')
-    if stage != '' and stage is not None and stage != me['stage']:
-      patches.append({'op': 'replace', 'path': '/stage', 'value': stage})
-
-    return patches
-
-  def _update_base_path_mapping(self):
-    """
-    Create base_path_mapping from provided args
-    :return: True, result from create_base_path_mapping
-    """
-    bpm = self.me
-    changed = False
-
-    try:
-      patches = ApiGwBasePathMapping._create_patches(self.module.params, self.me)
-      if patches:
-        changed = True
-
-        if not self.module.check_mode:
-          self.client.update_base_path_mapping(
-            domainName=self.module.params['name'],
-            basePath=self.module.params['base_path'],
-            patchOperations=patches
-          )
-          bpm = self._retrieve_base_path_mapping()
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when updating base_path_mapping via boto3: {}".format(e))
-
-    return (changed, bpm)
-
-  def process_request(self):
-    """
-    Process the user's request -- the primary code path
-    :return: Returns either fail_json or exit_json
-    """
-    bpm = None
-    changed = False
-    self.me = self._retrieve_base_path_mapping()
-
-    if self.module.params.get('state', 'present') == 'absent' and self.me is not None:
-      changed = self._delete_base_path_mapping()
-    elif self.module.params.get('state', 'present') == 'present':
-      if self.me is None:
-        (changed, bpm) = self._create_base_path_mapping()
-      else:
-        (changed, bpm) = self._update_base_path_mapping()
-
-    self.module.exit_json(changed=changed, base_path_mapping=bpm)
-
-def main():
-    """
-    Instantiates the module and calls process_request.
-    :return: none
-    """
-    module = AnsibleModule(
-        argument_spec=ApiGwBasePathMapping._define_module_argument_spec(),
-        supports_check_mode=True
-    )
-
-    base_path_mapping = ApiGwBasePathMapping(module)
-    base_path_mapping.process_request()
-
-from ansible.module_utils.basic import *  # pylint: disable=W0614
 if __name__ == '__main__':
     main()

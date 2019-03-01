@@ -17,6 +17,7 @@ the built-in AWS modules in ansible. The following resources have been
 refactored and any deprecated parameters removed:
 
 - API Key
+- Base Path Mapping
 - Domain Name
 - REST API
 - VPC Link
@@ -27,7 +28,6 @@ The following resources are completely or partially covered, but do not
 align with the ansible aws resources:
 
 - Authorizer
-- Base Path Mapping
 - Deployment
 - Method (including all four stages)
 - Resource
