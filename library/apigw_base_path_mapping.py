@@ -140,7 +140,13 @@ def main():
     name = module.params.get('name')
     path = module.params.get('base_path')
 
-    base_path_mapping = backoff_get_base_path_mapping(client, name, path)
+    try:
+        base_path_mapping = backoff_get_base_path_mapping(client, name, path)
+    except botocore.exceptions.ClientError as e:
+        if 'NotFoundException' in e.message:
+            base_path_mapping = None
+        else:
+            module.fail_json(msg="Error when getting base path mapping from boto3: {}".format(e))
 
     try:
         if state == "present":
@@ -158,11 +164,8 @@ def main():
 
 
 @AWSRetry.exponential_backoff()
-def backoff_create_base_path_mapping(client, name, path):
-    return client.create_base_path_mapping(
-        domainName=name,
-        basePath=path,
-    )
+def backoff_create_base_path_mapping(client, args):
+    return client.create_base_path_mapping(**args)
 
 
 @AWSRetry.exponential_backoff()
@@ -208,7 +211,6 @@ def ensure_base_path_mapping_present(module, client, base_path_mapping, name, re
     stage = module.params.get('stage', None)
 
     if not base_path_mapping:
-        raise ValueError('creating!')
         changed = True
         args = dict(
             domainName = name,
