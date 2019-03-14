@@ -8,17 +8,19 @@
 ---
 ### Modules
 
-  * [apigw_domain_name - add, update, or remove domainname resources](#apigw_domain_name)
-  * [apigw_base_path_mapping - add, update, or remove base path mapping resources](#apigw_base_path_mapping)
-  * [apigw_rest_api - add, update, or remove rest api resources](#apigw_rest_api)
-  * [apigw_deployment - create an apigateway deployment](#apigw_deployment)
-  * [apigw_usage_plan_key - add or remove usageplankey resources](#apigw_usage_plan_key)
-  * [apigw_authorizer - add, update, or remove authorizer resources](#apigw_authorizer)
-  * [apigw_usage_plan - add, update, or remove usageplan and usageplankey resources](#apigw_usage_plan)
-  * [apigw_method - add, update, or remove aws api gateway method resources](#apigw_method)
-  * [apigw_stage - an ansible module to update or remove an apigateway stage](#apigw_stage)
   * [apigw_api_key - add, update, or remove apikey resources](#apigw_api_key)
+  * [apigw_authorizer - add, update, or remove authorizer resources](#apigw_authorizer)
+  * [apigw_base_path_mapping - add, update, or remove base path mapping resources](#apigw_base_path_mapping)
+  * [apigw_deployment - create an apigateway deployment](#apigw_deployment)
+  * [apigw_domain_name - add, update, or remove domainname resources](#apigw_domain_name)
+  * [apigw_method - add, update, or remove aws api gateway method resources](#apigw_method)
   * [apigw_resource - add or remove resource resources](#apigw_resource)
+  * [apigw_rest_api - add, update, or remove rest api resources](#apigw_rest_api)
+  * [apigw_stage - an ansible module to update or remove an apigateway stage](#apigw_stage)
+  * [apigw_usage_plan - add, update, or remove usageplan and usageplankey resources](#apigw_usage_plan)
+  * [apigw_usage_plan_key - add or remove usageplankey resources](#apigw_usage_plan_key)
+  * [apigw_vpc_link - add, update, or remove vpc link resources](#apigw_vpc_link)
+  * [apigw_vpc_link_facts - find vpc link resources](#apigw_vpc_link_facts)
 
 ---
 
@@ -39,12 +41,9 @@ Add, update, or remove DomainName resources
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
 | None | name |   yes  |  | |  The name of the DomainName resource on which to operate  |
-| None | cert_private_key |   no  |    | |  Certificate's private key. Required when C(state) is 'present'  |
-| None | cert_body |   no  |    | |  Body of the server certificate. Required when C(state) is 'present'  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should domain_name exist or not  |
-| None | cert_name |   no  |    | |  Name of the associated certificate. Required when C(state) is 'present'  |
-| None | cert_chain |   no  |    | |  Intermediate certificates and optionally the root certificate.  If root is included, it must follow the intermediate certificates. Required when C(state) is 'present'  |
-
+| None | cert_arn |   no  |    | |  ARN of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'  |
+| None | cert_name |   no  |    | |  Name of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'
 
  
 #### <a id="apigw_domain_name-examples"></a>Examples
@@ -57,10 +56,7 @@ Add, update, or remove DomainName resources
   - name: api key creation
     apigw_domain_name:
       name: testdomain.io.edu.mil
-      cert_name: 'test-cert'
-      cert_body: 'cert body'
-      cert_private_key: 'totally secure key'
-      cert_chain: 'sure, this is real'
+      cert_arn: 'arn:aws:acm:us-east-1:1234:certificate/12345ae'
       state: "{{ state | default('present') }}"
     register: dn
 
@@ -71,7 +67,7 @@ Add, update, or remove DomainName resources
 
 #### <a id="apigw_domain_name-notes"></a>Notes
 
-- This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
+- This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
 
 
 ---
@@ -92,7 +88,8 @@ Add, update, or remove Base Path Mapping resources
 
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
-| None | rest_api_id |   no  |    | |  The id of the Rest API to which this BasePathMapping belongs.  Required to create a base path mapping.  |
+| None | rest_api |   no  |    | |  The name of the Rest API to which this BasePathMapping belongs.  Either C(rest_api) or C(rest_api_id) required to create a base path mapping.  |
+| None | rest_api_id |   no  |    | |  The id of the Rest API to which this BasePathMapping belongs.  Either C(rest_api) or C(rest_api_id) required to create a base path mapping.  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should base_path_mapping exist or not  |
 | None | name |   yes  |  | |  The domain name of the Base Path Mapping resource on which to operate  |
 | None | base_path |   no  |  (none)  | |  The base path name that callers of the api must provide.  Required when updating or deleting the mapping.  |
@@ -144,8 +141,17 @@ Add, update, or remove REST API resources
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Determine whether to assert if api should exist or not  |
-| None | name |   yes  |  | |  The name of the rest api on which to operate  |
+| None | id |   no  |  | |  The name of the rest api on which to operate. Either id or name is required.  |
+| None | name |   no  |  | |  The name of the rest api on which to operate. Either id or name is required.  |
+| None | api_key_source |   no  | <ul> <li>HEADER</li> <li>AUTHORIZER</li> </ul> | |  The source of the API key for metering requests according to a usage plan.  |
+| None | binary_media_types |   no  |  | |  The list of binary media types supported by the RestApi.  |
+| None | clone_from |   no  |  | |  The name or id of a rest api to clone from (only if rest api is created).  |
 | None | description |   no  |  | |  A description for the rest api  |
+| None | endpoint_configuration |   no  |  | |  The endpoint configuration of this RestApi showing the endpoint types of the API.  |
+| endpoint_configuration | types |   no  |  | <ul> <li>EDGE</li> <li>REGIONAL</li> <li>PRIVATE</li> </ul> |  The list of endpoint types.  |
+| None | minimum_compression_size |   no  |  | |  Enable compression with a payload size larger than this value.  |
+| None | policy |   no  |  | |  A stringified JSON policy document that applies to this RestApi regardless of the caller and Method configuration.  |
+| None | version |   no  |  | |  A version identifier for the API.  |
 
 
  
@@ -161,6 +167,26 @@ Add, update, or remove REST API resources
       apigw_rest_api:
         name: 'docs.example.io'
         description: 'stolen straight from the docs'
+        state: present
+      register: api
+
+    - name: debug
+      debug: var=api
+
+- name: Update rest api to Api Gateway
+  hosts: localhost
+  gather_facts: False
+  connection: local
+  tasks:
+    - name: Create rest api
+      apigw_rest_api:
+        name: 'docs.example.io'
+        api_key_source: 'AUTHORIZER'
+        endpoint_configuration:
+          types:
+            - 'PRIVATE'
+        minimum_compression_size: 3500
+        version: '1.0.1'
         state: present
       register: api
 
@@ -265,8 +291,10 @@ Add or remove UsagePlanKey resources
 |--------| ------------- |-------------| ---------|----------- |--------- |
 | None | key_type |   no  |  API_KEY  | <ul> <li>API_KEY</li> </ul> |  Type of the api key.  You can choose any value you like, so long as you choose 'API_KEY'.  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should usage_plan_key exist or not  |
-| None | usage_plan_id |   yes  |  | |  Id of the UsagePlan resource to which a key will be associated  |
-| None | api_key_id |   yes  |  | |  Id of the UsagePlan resource to which a key will be associated  |
+| None | usage_plan |   no  |  | |  Name of the usage plan resource to which a key will be associated  |
+| None | usage_plan_id |   no  |  | |  Id of the usage plan resource to which a key will be associated  |
+| None | api_key |   no  |  | |  Name of the api key resource to which a usage plan will be associated  |
+| None | api_key_id |   no  |  | |  Id of the api key resource to which a usage plan will be associated  |
 
 
  
@@ -370,7 +398,7 @@ Add, update, or remove UsagePlan and UsagePlanKey resources
 
 #### <a id="apigw_usage_plan-synopsis"></a>Synopsis
 * Basic CRUD operations on Usage Plan Key resources
-* Does not support updating name (see Notes)
+* Does not support per-stage throttling
 
 #### <a id="apigw_usage_plan-options"></a>Options
 
@@ -379,13 +407,16 @@ Add, update, or remove UsagePlan and UsagePlanKey resources
 | None | quota_offset |   no  |  -1  | |  Number of requests subtracted from the given limit in the initial time period  |
 | None | name |   yes  |  | |  The domain name of the UsagePlan resource on which to operate  |
 | None | quota_limit |   no  |  -1  | |  Maxiumum number of requests that can be made in a given time period  |
+| None | quota_period |   no  |    | <ul> <li></li>  <li>DAY</li>  <li>WEEK</li>  <li>MONTH</li> </ul> |  The time period in which the limit applies  |
+| None | purge_quota |   no  | True   | |  Whether to purge quota if values unset  |
 | None | throttle_burst_limit |   no  |  -1  | |  API request burst limit  |
 | None | throttle_rate_limit |   no  |  -1.0  | |  API request steady-state limit  |
-| None | quota_period |   no  |    | <ul> <li></li>  <li>DAY</li>  <li>WEEK</li>  <li>MONTH</li> </ul> |  The time period in which the limit applies  |
+| None | purge_throttle |   no  | True   | |  Whether to purge throttling if values unset  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should usage_plan exist or not  |
 | None | api_stages |   no  |  []  | |  List of associated api stages  |
 | api_stages | rest_api_id |   yes  |  | |  ID of the associated API stage in the usage plan  |
 | api_stages | stage |   yes  |  | |  API stage name of the associated API stage in the usage plan  |
+| None | purge_api_stages |   no  | True   | |  Whether to purge unlisted api stages  |
 | None | description |   no  |    | |  UsagePlan description  |
 
 
@@ -660,7 +691,8 @@ Add, update, or remove ApiKey resources
 
 | Parent | Parameter     | required    | default  | choices    | comments |
 |--------| ------------- |-------------| ---------|----------- |--------- |
-| None | name |   yes  |  | |  The domain name of the ApiKey resource on which to operate  |
+| None | id |   no  |  | |  The identifier of the ApiKey resource on which to operate. Either name or id is required  |
+| None | name |   no  |  | |  The domain name of the ApiKey resource on which to operate. Either name or id is required  |
 | None | generate_distinct_id |   no  |  False  | |  Specifies whether key identifier is distinct from created apikey value  |
 | None | enabled |   no  |  False  | |  Can ApiKey be used by called  |
 | None | value |   no  |    | |  Value of the api key. Required for create.  |
@@ -760,6 +792,95 @@ Add or remove Resource resources
 #### <a id="apigw_resource-notes"></a>Notes
 
 - This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
+
+
+---
+
+## <a id="apigw_vpc_link"></a>apigw_vpc_link
+Add, update, or remove VPC link resources
+
+  * [Synopsis](#apigw_vpc_link-synopsis)
+  * [Options](#apigw_vpc_link-options)
+  * [Examples](#apigw_vpc_link-examples)
+  * [Notes](#apigw_vpc_link-notes)
+
+#### <a id="apigw_vpc_link-synopsis"></a>Synopsis
+* Uses domain name for identifying resources for CRUD operations
+* Update only covers certificate name
+
+#### <a id="apigw_vpc_link-options"></a>Options
+
+| Parent | Parameter     | required    | default  | choices    | comments |
+|--------| ------------- |-------------| ---------|----------- |--------- |
+| None | vpc_link_id |   yes  |  | |  The ID of the VPC link resource on which to operate  |
+| None | name |   yes  |  | |  The name of the VPC link resource; can be used instead of C(vpc_link_id) to identify the resource. Required to create new VPC link.
+| None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should domain_name exist or not  |
+| None | description |   no  |    | |  Description of the resource  |
+| None | target_arns |   no  |    | |  List of network load balancer ARNs. AWS only supports single ARN. Required to create new VPC link.
+
+ 
+#### <a id="apigw_vpc_link-examples"></a>Examples
+
+```
+---
+- hosts: localhost
+  gather_facts: False
+  tasks:
+  - name: VPC link creation
+    apigw_vpc_link:
+      name: my-link
+      target_arns: [ 'arn:aws:acm:us-east-1:1234:network/12345ae' ]
+      state: "{{ state | default('present') }}"
+    register: vl
+
+  - debug: var=vl
+
+```
+
+
+#### <a id="apigw_vpc_link-notes"></a>Notes
+
+- This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
+
+
+---
+
+## <a id="apigw_vpc_link_facts"></a>apigw_vpc_link_facts
+Find VPC link resources
+
+  * [Synopsis](#apigw_vpc_link_facts-synopsis)
+  * [Options](#apigw_vpc_link_facts-options)
+  * [Examples](#apigw_vpc_link_facts-examples)
+  * [Notes](#apigw_vpc_link_facts-notes)
+
+#### <a id="apigw_vpc_link_facts-synopsis"></a>Synopsis
+An Ansible module to list VPC links.
+
+#### <a id="apigw_vpc_link_facts-options"></a>Options
+
+This module takes no specific parameters as the underlying AWS call has no parameters.
+
+ 
+#### <a id="apigw_vpc_link_facts-examples"></a>Examples
+
+```
+---
+- hosts: localhost
+  gather_facts: False
+  tasks:
+  - name: VPC link creation
+    apigw_vpc_link_facts:
+      region: "us-east-1"
+    register: vl
+
+  - debug: var=vl
+
+```
+
+
+#### <a id="apigw_vpc_link_facts-notes"></a>Notes
+
+- This module requires that you have boto and boto3 installed and accepts credentials the same as built-in AWS modules.
 
 
 ---

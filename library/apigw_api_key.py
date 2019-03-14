@@ -6,17 +6,16 @@
 #
 # Authors:
 #  - Brian Felton <github: bjfelton>
+#  - Malcolm Studd <github: mestudd>
 #
 # apigw_api_key
 #    Manage creation, update, and removal of API Gateway ApiKey resources
 #
-# NOTE: While it is possible via the boto api to update the ApiKey's name,
-#       this module does not support this functionality since it searches
-#       for the ApiKey's id by its name.
 
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
+# Copyright (c) 2019 Malcolm Studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -47,9 +46,13 @@ description:
   - Updates I(enabled) and I(description)
 version_added: "2.2"
 options:
+  id:
+    description: The identifier of the api key on which to operate. Either C(name) or C(id) is required to identify the api key.
+    type: string
+    required: True
   name:
     description:
-    - The domain name of the ApiKey resource on which to operate
+    - The domain name of the ApiKey resource on which to operate. Either C(name) or C(id) is required to identify the api key.
     type: string
     required: True
   value:
@@ -87,8 +90,10 @@ requirements:
     - boto
     - boto3
 notes:
-    - While it is possible via the boto api to update the ApiKey's name, this module does not support this functionality since it searches for the ApiKey's id by its name.
     - This module requires that you have boto and boto3 installed and that your credentials are created or stored in a way that is compatible (see U(https://boto3.readthedocs.io/en/latest/guide/quickstart.html#configuration)).
+extends_documentation_fragment:
+    - aws
+    - ec2
 '''
 
 EXAMPLES = '''
@@ -137,167 +142,183 @@ RETURN = '''
 
 __version__ = '${version}'
 
+
 try:
-  import boto3
-  import boto
-  from botocore.exceptions import BotoCoreError
-  HAS_BOTO3 = True
+    import botocore
 except ImportError:
-  HAS_BOTO3 = False
+    # HAS_BOTOCORE taken care of in AnsibleAWSModule
+    pass
 
-class ApiGwApiKey:
-  def __init__(self, module):
-    """
-    Constructor
-    """
-    self.module = module
-    if (not HAS_BOTO3):
-      self.module.fail_json(msg="boto and boto3 are required for this module")
-    self.client = boto3.client('apigateway')
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
-  @staticmethod
-  def _define_module_argument_spec():
-    """
-    Defines the module's argument spec
-    :return: Dictionary defining module arguments
-    """
-    return dict( name=dict(required=True),
-                 description=dict(required=False),
-                 value=dict(required=False),
-                 enabled=dict(required=False, type='bool', default=False),
-                 generate_distinct_id=dict(required=False, type='bool', default=False),
-                 state=dict(default='present', choices=['present', 'absent']),
+def main():
+    argument_spec = dict(
+        name=dict(required=False, type='str'),
+        id=dict(required=False, type='str'),
+        description=dict(required=False, type='str'),
+        value=dict(required=False, type='str'),
+        enabled=dict(required=False, type='bool', default=False),
+        generate_distinct_id=dict(required=False, type='bool', default=False),
+        state=dict(default='present', choices=['present', 'absent']),
     )
 
-  def _retrieve_api_key(self):
+    module = AnsibleAWSModule(
+        argument_spec=argument_spec,
+        supports_check_mode=True,
+    )
+
+    client = module.client('apigateway')
+
+    state = module.params.get('state')
+
+    try:
+        if state == "present":
+            result = ensure_api_key_present(module, client)
+        elif state == 'absent':
+            result = ensure_api_key_absent(module, client)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json_aws(e)
+
+    module.exit_json(**result)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_create_api_key(client, name, description, enabled, generate_distinct_id, value):
+    args= dict(
+        name=name,
+        enabled=enabled,
+        generateDistinctId=generate_distinct_id,
+    )
+    if (description is not None):
+        args['description'] = description
+    if (value is not None):
+        args['value'] = value
+
+    return client.create_api_key(**args)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_delete_api_key(client, api_key_id):
+    return client.delete_api_key(apiKey=api_key_id)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_api_key(client, api_key_id):
+    return client.get_api_key(
+        apiKey=api_key_id,
+        includeValue=True
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_api_keys(client, name):
+    return client.get_api_keys(
+        nameQuery=name,
+        includeValues=True
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_update_api_key(client, api_key_id, patches):
+    return client.update_api_key(
+        apiKey=api_key_id,
+        patchOperations=patches
+    )
+
+
+def ensure_api_key_absent(module, client):
+    api_key = find_api_key(module, client)
+
+    if api_key is None:
+        return {'changed': False}
+
+    try:
+        if not module.check_mode:
+            backoff_delete_api_key(client, api_key['id'])
+        return {'changed': True}
+    except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+        module.fail_json_aws(e, msg="Couldn't delete api key")
+
+
+def ensure_api_key_present(module, client):
+    changed = False
+    api_key_id           = module.params.get('id')
+    name                 = module.params.get('name')
+    description          = module.params.get('description', None)
+    enabled              = module.params.get('enabled', False)
+    generate_distinct_id = module.params.get('generate_distinct_id', False)
+    value                = module.params.get('value', None)
+
+    api_key = find_api_key(module, client)
+
+    # Create new key
+    if not api_key:
+        if api_key_id:
+            module.fail_json_aws(e, msg="Couldn't find api key for id")
+        changed = True
+        if not module.check_mode:
+            api_key = backoff_create_api_key(client, name, description, enabled, generate_distinct_id, value)
+
+    else:
+        patches = []
+        if name not in ['', None] and name != api_key['name']:
+            patches.append({'op': 'replace', 'path': '/name', 'value': name})
+        if description not in ['', None] and description != api_key['description']:
+            patches.append({'op': 'replace', 'path': '/description', 'value': description})
+        if enabled not in ['', None] and enabled != api_key['enabled']:
+            patches.append({'op': 'replace', 'path': '/enabled', 'value': str(enabled)})
+        if value not in ['', None] and value != api_key['value']:
+            module.fail_json(msg="Cannot change value after creation")
+
+        if patches:
+            changed = True
+            if not module.check_mode:
+                api_key = backoff_update_api_key(client, api_key['id'], patches)
+
+    # Don't want response metadata. It's not documented as part of return, so not sure why it's here
+    api_key.pop('ResponseMetadata', None)
+
+    return {
+        'changed': changed,
+        'api_key': camel_dict_to_snake_dict(api_key)
+    }
+
+
+def find_api_key(module, client):
     """
-    Retrieve all api_keys in the account and match them against the provided name
-    :return: Result matching the provided api name or an empty hash
+    Retrieve api key by provided name
+    :return: Result matching the provided api key or None
     """
     resp = None
-    try:
-      get_resp = self.client.get_api_keys(nameQuery=self.module.params['name'], includeValues=True)
+    name = module.params.get('name')
+    api_key_id = module.params.get('id')
 
-      for item in get_resp.get('items', []):
-        if item['name'] == self.module.params.get('name'):
-          resp = item
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when getting api_keys from boto3: {}".format(e))
+    try:
+        if api_key_id:
+            # lookup by id
+            resp = backoff_get_api_key(client, api_key_id)
+        else:
+            # lookup by name
+            if not name:
+                module.fail_json(msg="Api key name or id is required")
+
+            all_keys = backoff_get_api_keys(client, name)
+
+            for l in all_keys.get('items'):
+                if name == l.get('name'):
+                    resp = l
+
+    except botocore.exceptions.ClientError as e:
+        if 'NotFoundException' in e.message:
+            resp = None
+        else:
+            module.fail_json(msg="Error when getting api keys from boto3: {}".format(e))
+    except botocore.exceptions.BotoCoreError as e:
+        module.fail_json(msg="Error when getting api keys from boto3: {}".format(e))
 
     return resp
 
-  def _delete_api_key(self):
-    """
-    Delete api_key that matches the returned id
-    :return: True
-    """
-    try:
-      if not self.module.check_mode:
-        self.client.delete_api_key(apiKey=self.me['id'])
-      return True
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when deleting api_key via boto3: {}".format(e))
 
-  def _create_api_key(self):
-    """
-    Create api_key from provided args
-    :return: True, result from create_api_key
-    """
-    api_key = None
-    changed = False
-
-    try:
-      changed = True
-      if not self.module.check_mode:
-        args = dict(
-          name=self.module.params['name'],
-          enabled=self.module.params.get('enabled', False),
-          generateDistinctId=self.module.params.get('generate_distinct_id', False),
-        )
-
-        for opt_field in ['description', 'value']:
-          if self.module.params.get(opt_field, None) not in [None, '']:
-            args[opt_field] = self.module.params[opt_field]
-
-        api_key = self.client.create_api_key(**args)
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when creating api_key via boto3: {}".format(e))
-
-    return (changed, api_key)
-
-  @staticmethod
-  def _create_patches(params, me):
-    patches = []
-
-    for param in ['enabled', 'description']:
-      ans_value = params.get(param, None)
-      if ans_value is not None and (param not in me or str(ans_value) != str(me[param])):
-        # More special snowflake logic because boto removes description
-        # from get results if the key is set to empty string
-        if param == 'description' and ans_value == '' and param not in me:
-          pass
-        else:
-          patches.append({'op': 'replace', 'path': "/{}".format(param), 'value': str(ans_value)})
-
-    return patches
-
-  def _update_api_key(self):
-    """
-    Create api_key from provided args
-    :return: True, result from create_api_key
-    """
-    api_key = self.me
-    changed = False
-
-    try:
-      patches = ApiGwApiKey._create_patches(self.module.params, self.me)
-      if patches:
-        changed = True
-
-        if not self.module.check_mode:
-          self.client.update_api_key(
-            apiKey=self.me['id'],
-            patchOperations=patches
-          )
-          api_key = self._retrieve_api_key()
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Error when updating api_key via boto3: {}".format(e))
-
-    return (changed, api_key)
-
-  def process_request(self):
-    """
-    Process the user's request -- the primary code path
-    :return: Returns either fail_json or exit_json
-    """
-
-    api_key = None
-    changed = False
-    self.me = self._retrieve_api_key()
-
-    if self.module.params.get('state', 'present') == 'absent' and self.me is not None:
-      changed = self._delete_api_key()
-    elif self.module.params.get('state', 'present') == 'present':
-      if self.me is None:
-        (changed, api_key) = self._create_api_key()
-      else:
-        (changed, api_key) = self._update_api_key()
-
-    self.module.exit_json(changed=changed, api_key=api_key)
-
-def main():
-    """
-    Instantiates the module and calls process_request.
-    :return: none
-    """
-    module = AnsibleModule(
-        argument_spec=ApiGwApiKey._define_module_argument_spec(),
-        supports_check_mode=True
-    )
-
-    api_key = ApiGwApiKey(module)
-    api_key.process_request()
-
-from ansible.module_utils.basic import *  # pylint: disable=W0614
 if __name__ == '__main__':
     main()

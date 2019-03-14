@@ -12,19 +12,26 @@ produce usable documentation, which is included as WEBDOCS.md in the repo.
 
 ## API Coverage
 
-Currently, the following resources are completely or partially covered:
+The library is currently going under a refactoring to align better with
+the built-in AWS modules in ansible. The following resources have been
+refactored and any deprecated parameters removed:
 
 - API Key
-- Authorizer
 - Base Path Mapping
-- Deployment
 - Domain Name
-- Method (including all four stages)
-- Resource
 - REST API
-- Stage
+- VPC Link
 - Usage Plan
 - Usage Plan Key
+
+The following resources are completely or partially covered, but do not
+align with the ansible aws resources:
+
+- Authorizer
+- Deployment
+- Method (including all four stages)
+- Resource
+- Stage
 
 ## Gaps
 

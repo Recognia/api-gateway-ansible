@@ -6,6 +6,7 @@
 #
 # Authors:
 #  - Brian Felton <github: bjfelton>
+#  - Malcolm Studd <github: mestudd>
 #
 # apigw_rest_api
 #    Manage creation, update, and removal of API Gateway REST APIs
@@ -14,6 +15,7 @@
 # MIT License
 #
 # Copyright (c) 2016 Brian Felton, Emerson
+# Copyright (c) 2019 Malcolm Studd
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -42,13 +44,41 @@ description:
   - An Ansible module to add, update, or remove REST API resources for AWS API Gateway.
 version_added: "2.2"
 options:
+  id:
+    description: The id of the rest api on which to operate. Either C(name) or C(id) is required.
+    required: False
   name:
-    description:
-      - The name of the rest api on which to operate
-    required: True
+    description: The name of the rest api on which to operate. Either C(name) or C(id) is required.
+    required: False
+  api_key_source:
+    description: The source of the API key for metering requests according to a usage plan.
+    choices: ['HEADER', 'AUTHORIZER']
+    required: False
+  binary_media_types:
+    description: The list of binary media types supported by the RestApi.
+    required: False
+  clone_from:
+    description: The name or id of a rest api to clone from (only if rest api is created).
+    required: False
   description:
     description:
       - A description for the rest api
+    required: False
+  endpoint_configuration:
+    description: The endpoint configuration of this RestApi showing the endpoint types of the API.
+    type: complex:
+    contains:
+      types:
+        description: The list of endpoint types.
+        choices: [ 'EDGE', 'REGIONAL', 'PRIVATE' ]
+  minimum_compression_size:
+    description: Enable compression with a payload size larger than this value.
+    required: False
+  policy:
+    description: A stringified JSON policy document that applies to this RestApi regardless of the caller and Method configuration.
+    required: False
+  version:
+    description: A version identifier for the API.
     required: False
   state:
     description:
@@ -128,166 +158,235 @@ RETURN = '''
 
 __version__ = '${version}'
 
+
 try:
-  import boto3
-  import boto
-  from botocore.exceptions import BotoCoreError
-  HAS_BOTO3 = True
+    import botocore
 except ImportError:
-  HAS_BOTO3 = False
+    # HAS_BOTOCORE taken care of in AnsibleAWSModule
+    pass
 
-class ApiGwRestApi:
-  def __init__(self, module):
-    """
-    Constructor
-    """
-    self.module = module
-    if (not HAS_BOTO3):
-      self.module.fail_json(msg="boto and boto3 are required for this module")
-    self.client = boto3.client('apigateway')
+from ansible.module_utils.aws.core import AnsibleAWSModule
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
 
-  @staticmethod
-  def _define_module_argument_spec():
-    """
-    Defines the module's argument spec
-    :return: Dictionary defining module arguments
-    """
-    return dict( name=dict(required=True),
-                 description=dict(required=False),
-                 state=dict(default='present', choices=['present', 'absent'])
-    )
-
-  def _retrieve_rest_api(self):
-    """
-    Retrieve all rest APIs in the account and match it against the provided name
-    :return: Result matching the provided api name or an empty hash
-    """
-    response = None
-    try:
-      results = self.client.get_rest_apis(limit=500)
-      id = self.module.params.get('name')
-
-      api = filter(lambda result: result['name'] == id, results['items'])
-
-      if len(api):
-        response = api[0]
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Encountered fatal error calling boto3 get_rest_apis function: {0}".format(e))
-
-    return response
-
-  @staticmethod
-  def _is_changed(api, params):
-    """
-    Determine if the discovered api differs from the user-provided params
-    :param api: Result from _retrieve_rest_api()
-    :param params: Module params
-    :return: Boolean telling if result matches params
-    """
-    return api.get('name') != params.get('name') or api.get('description') != params.get('description')
-
-  def _create_or_update_api(self, api):
-    """
-    When state is 'present', determine if api creation or update is appropriate
-    :return: (changed, result)
-              changed: Boolean showing whether a change occurred
-              result: The resulting rest api object
-    """
-    changed = False
-    if not api:
-      changed, api = self._create_api()
-    elif ApiGwRestApi._is_changed(api, self.module.params):
-      changed, api = self._update_api(api.get('id'))
-
-    return changed, api
-
-  def _maybe_delete_api(self, api):
-    """
-    Delete's the discovered api via boto3, as appropriate
-    :param api: The discovered API
-    :return: (changed, result)
-              changed: Boolean showing whether a change occurred
-              result: Empty hash
-    """
-    changed = False
-    if api:
-      try:
-        if not self.module.check_mode:
-          api = self.client.delete_rest_api(restApiId=api.get('id'))
-        changed = True
-      except BotoCoreError as e:
-        self.module.fail_json(msg="Encountered fatal error calling boto3 delete_rest_api function: {0}".format(e))
-
-    return changed, api
-
-  def _update_api(self, id):
-    """
-    Updates the API with the provided id using boto3
-    :param id: Id of the discovered rest api
-    :return: (changed, result)
-              changed: Boolean showing whether a change occurred
-              result: The resulting rest api object after the update
-    """
-    api = None
-    description = "" if self.module.params.get('description') is None else self.module.params.get('description')
-    try:
-      if not self.module.check_mode:
-        api = self.client.update_rest_api(restApiId=id, patchOperations=[
-          {'op': 'replace', 'path': '/name', 'value': self.module.params.get('name')},
-          {'op': 'replace', 'path': '/description', 'value': description},
-        ])
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Encountered fatal error calling boto3 update_rest_api function: {0}".format(e))
-    return True, api
-
-  def _create_api(self):
-    """
-    Creates a new api based on user input
-    :return: (True, result)
-              True
-              result: The resulting rest api object after the create
-    """
-    api = None
-    kwargs = dict(name=self.module.params.get('name'))
-    if self.module.params.get('description'):
-      kwargs['description'] = self.module.params.get('description')
-    try:
-      if not self.module.check_mode:
-        api = self.client.create_rest_api(**kwargs)
-    except BotoCoreError as e:
-      self.module.fail_json(msg="Encountered fatal error calling boto3 create_rest_api function: {0}".format(e))
-    return True, api
-
-  def process_request(self):
-    """
-    Process the user's request -- the primary code path
-    :return: Returns either fail_json or exit_json
-    """
-    params = self.module.params
-    api = self._retrieve_rest_api()
-    changed = False
-
-    if params.get('state') == 'absent':
-      changed, api = self._maybe_delete_api(api)
-    else:
-      changed, api = self._create_or_update_api(api)
-
-    return self.module.exit_json(changed=changed, api=api)
-
+param_map = {
+    'api_key_source': 'apiKeySource',
+    'endpoint_configuration': 'endpointConfiguration',
+    'binary_media_types': 'binaryMediaTypes',
+    'minimum_compression_size': 'minimumCompressionSize',
+}
 
 def main():
-    """
-    Instantiates the module and calls process_request.
-    :return: none
-    """
-    module = AnsibleModule(
-        argument_spec=ApiGwRestApi._define_module_argument_spec(),
-        supports_check_mode=True
+    argument_spec = dict(
+        name=dict(required=False),
+        id=dict(required=False),
+        description=dict(required=False),
+        api_key_source=dict(required=False, choices=['HEADER', 'AUTHORIZER']),
+        binary_media_types=dict(
+            required=False,
+            type='list',
+            elements='str'
+        ),
+        clone_from=dict(required=False),
+        endpoint_configuration=dict(
+            required=False,
+            type='dict',
+            options=dict(
+                types=dict(
+                    required=True,
+                    type='list',
+                    choices=['REGIONAL', 'EDGE', 'PRIVATE']
+                ),
+            ),
+        ),
+        minimum_compression_size=dict(required=False, type='int'),
+        policy=dict(required=False),
+        version=dict(required=False),
+        state=dict(default='present', choices=['present', 'absent']),
     )
 
-    rest_api = ApiGwRestApi(module)
-    rest_api.process_request()
+    module = AnsibleAWSModule(
+        argument_spec=argument_spec,
+        supports_check_mode=True,
+    )
 
-from ansible.module_utils.basic import *  # pylint: disable=W0614
+    client = module.client('apigateway')
+
+    state = module.params.get('state')
+
+    try:
+        if state == "present":
+            result = ensure_rest_api_present(module, client)
+        elif state == 'absent':
+            result = ensure_rest_api_absent(module, client)
+    except botocore.exceptions.ClientError as e:
+        module.fail_json_aws(e)
+
+    module.exit_json(**result)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_create_rest_api(client, args):
+    return client.create_rest_api(**args)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_delete_rest_api(client, rest_api_id):
+    return client.delete_rest_api(restApiId=rest_api_id)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_rest_api(client, rest_api_id):
+    return client.get_rest_api(restApiId=rest_api_id)
+
+
+@AWSRetry.exponential_backoff()
+def backoff_get_rest_apis(client):
+    return client.get_rest_apis(
+        limit=500
+    )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_update_rest_api(client, rest_api_id, patches):
+    return client.update_rest_api(
+        restApiId=rest_api_id,
+        patchOperations=patches
+    )
+
+
+def create_patches(module, rest_api):
+    patches = []
+
+    new = module.params.get('endpoint_configuration')
+    old = rest_api['endpointConfiguration']['types'][0]
+    if new is not None and new['types'][0] != old:
+        patches.append({'op': 'replace', 'path': "/endpointConfiguration/types/{}".format(old), 'value': str(new['types'][0])})
+
+    for f in [ 'binary_media_types' ]:
+        new = module.params.get(f)
+        key = param_map.get(f, f)
+        old = rest_api.get(key)
+        if new is not None and new != old:
+            module.fail_json(msg="This module does not yet support updating "+ f)
+
+    for f in [ 'name', 'description', 'api_key_source', 'minimum_compression_size', 'policy', 'version' ]:
+        new = module.params.get(f)
+        key = param_map.get(f, f)
+        old = rest_api.get(key)
+        if new is not None and new != old:
+            if old is None:
+                patches.append({'op': 'add', 'path': "/{}".format(key), 'value': str(new)})
+            elif old != new:
+                patches.append({'op': 'replace', 'path': "/{}".format(key), 'value': str(new)})
+
+    return patches
+
+
+def create_rest_api(module, client):
+    args = dict(
+        name=module.params['name'],
+    )
+
+    clone_from = module.params.get('clone_from')
+    if clone_from:
+        orig = find_rest_api(module, client, clone_from)
+        if not orig:
+            module.fail_json(msg="Could not find clone_from api")
+        args['cloneFrom'] = orig.get('id')
+
+    for f in [ 'name', 'description', 'api_key_source', 'binary_media_types', 'endpoint_configuration', 'minimum_compression_size', 'policy', 'version' ]:
+        v = module.params.get(f)
+        if v is not None:
+            boto_param = param_map.get(f, f)
+            args[boto_param] = module.params[f]
+
+    return backoff_create_rest_api(client, args)
+
+
+def ensure_rest_api_absent(module, client):
+  rest_api = find_rest_api(module, client)
+
+  if rest_api is None:
+    return {'changed': False}
+
+  try:
+    if not module.check_mode:
+      backoff_delete_rest_api(client, rest_api['id'])
+    return {
+        'changed': True,
+        'api': camel_dict_to_snake_dict(rest_api)
+    }
+  except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
+    module.fail_json_aws(e, msg="Couldn't delete rest api")
+
+
+def ensure_rest_api_present(module, client):
+    changed = False
+
+    rest_api_id = module.params.get('id')
+
+    rest_api = find_rest_api(module, client)
+
+    # Create new key
+    if not rest_api:
+        if rest_api_id:
+            module.fail_json_aws(e, msg="Couldn't find rest api for id")
+        changed = True
+        if not module.check_mode:
+            rest_api = create_rest_api(module, client)
+
+    else:
+        patches = create_patches(module, rest_api)
+        if patches:
+            changed = True
+            if not module.check_mode:
+                rest_api = backoff_update_rest_api(client, rest_api['id'], patches)
+
+    # Don't want response metadata. It's not documented as part of return, so not sure why it's here
+    rest_api.pop('ResponseMetadata', None)
+
+    return {
+        'changed': changed,
+        'api': camel_dict_to_snake_dict(rest_api)
+    }
+
+
+def find_rest_api(module, client, other=None):
+    resp = None
+    name = module.params.get('name')
+    rest_api_id = module.params.get('id')
+
+    try:
+        if other:
+            all_apis = backoff_get_rest_apis(client)
+
+            for l in all_apis.get('items'):
+                if other in [ l.get('name'), l.get('id') ]:
+                    resp = l
+        elif rest_api_id:
+            # lookup by id
+            resp = backoff_get_rest_api(client, rest_api_id)
+        else:
+            # lookup by name
+            if not name:
+                module.fail_json(msg="Rest api name or id is required")
+
+            all_apis = backoff_get_rest_apis(client)
+
+            for l in all_apis.get('items'):
+                if name == l.get('name'):
+                    resp = l
+
+    except botocore.exceptions.ClientError as e:
+        if 'NotFoundException' in e.message:
+            resp = None
+        else:
+            module.fail_json(msg="Error when getting rest api from boto3: {}".format(e))
+    except botocore.exceptions.BotoCoreError as e:
+        module.fail_json(msg="Error when getting api rest api boto3: {}".format(e))
+
+    return resp
+
+
 if __name__ == '__main__':
     main()
