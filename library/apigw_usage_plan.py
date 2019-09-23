@@ -461,7 +461,7 @@ def find_usage_plan(module, client):
                     resp = l
 
     except botocore.exceptions.ClientError as e:
-        if 'NotFoundException' in e.message:
+        if e.response['Error']['Code'] == 'NotFoundException':
             resp = None
         else:
             module.fail_json(msg="Error when getting usage plans from boto3: {}".format(e))

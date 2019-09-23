@@ -378,7 +378,7 @@ def find_rest_api(module, client, other=None):
                     resp = l
 
     except botocore.exceptions.ClientError as e:
-        if 'NotFoundException' in e.message:
+        if e.response['Error']['Code'] == 'NotFoundException':
             resp = None
         else:
             module.fail_json(msg="Error when getting rest api from boto3: {}".format(e))

@@ -253,7 +253,7 @@ def retrieve_domain_name(module, client, name):
     resp = backoff_get_domain_name(client, name)
 
   except botocore.exceptions.ClientError as e:
-    if 'NotFoundException' in e.message:
+    if e.response['Error']['Code'] == 'NotFoundException':
       resp = None
     else:
       module.fail_json(msg="Error when getting domain_name from boto3: {}".format(e))

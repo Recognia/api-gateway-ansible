@@ -211,7 +211,7 @@ def backoff_get_usage_plan_key(client, api_key_id, usage_plan_id):
             usagePlanId=usage_plan_id,
         )
     except botocore.exceptions.ClientError as e:
-        if 'NotFoundException' in e.message:
+        if e.response['Error']['Code'] == 'NotFoundException':
             return None
         else:
             module.fail_json_aws(e, msg="Error when getting usage plan key from boto3")

@@ -143,7 +143,7 @@ def main():
     try:
         base_path_mapping = backoff_get_base_path_mapping(client, name, path)
     except botocore.exceptions.ClientError as e:
-        if 'NotFoundException' in e.message:
+        if e.response['Error']['Code'] == 'NotFoundException':
             base_path_mapping = None
         else:
             module.fail_json(msg="Error when getting base path mapping from boto3: {}".format(e))
@@ -199,7 +199,7 @@ def ensure_base_path_mapping_absent(module, client, base_path_mapping, name):
 
     try:
         if not module.check_mode:
-            backoff_delete_usage_plan_key(client, name, base_path_mapping['basePath'])
+            backoff_delete_base_path_mapping(client, name, base_path_mapping['basePath'])
         return {'changed': True}
     except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
         module.fail_json_aws(e, msg="Couldn't delete usage plan key")

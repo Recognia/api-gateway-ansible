@@ -241,7 +241,7 @@ def find_vpc_link(module, client):
                     resp = l
 
     except botocore.exceptions.ClientError as e:
-        if 'NotFoundException' in e.message:
+        if e.response['Error']['Code'] == 'NotFoundException':
             resp = None
         else:
             module.fail_json(msg="Error when getting vpc links from boto3: {}".format(e))
