@@ -61,6 +61,12 @@ options:
     type: string
     required: False
     default: None
+  security_policy:
+    description:
+    - The Transport Layer Security (TLS) version + cipher suite
+    choices: ['TLS_1_0', 'TLS_1_2']
+    required: False
+    default: None
   state:
     description:
     - Should domain_name exist or not
@@ -122,6 +128,7 @@ def main():
         name=dict(required=True, aliases=['domain_name']),
         cert_arn=dict(required=False),
         cert_name=dict(required=False),
+        security_policy=dict(required=False),
         state=dict(default='present', choices=['present', 'absent']),
     )
 
@@ -149,17 +156,8 @@ def main():
 
 
 @AWSRetry.exponential_backoff(delay=15, max_delay=120)
-def backoff_create_domain_name(client, name, cert_arn, cert_name):
-  if cert_arn is None:
-    return client.create_domain_name(
-      domainName=name,
-      certificateName=cert_name
-    )
-  else:
-    return client.create_domain_name(
-      domainName=name,
-      certificateArn=cert_arn
-    )
+def backoff_create_domain_name(client, args):
+  return client.create_domain_name(**args)
 
 @AWSRetry.exponential_backoff()
 def backoff_delete_domain_name(client, name):
@@ -200,6 +198,7 @@ def ensure_domain_name_present(module, client):
   name = module.params.get('name')
   cert_arn = module.params.get('cert_arn')
   cert_name = module.params.get('cert_name')
+  security_policy = module.params.get('security_policy')
 
   domain = retrieve_domain_name(module, client, name)
   changed = False
@@ -209,8 +208,18 @@ def ensure_domain_name_present(module, client):
     return {'changed': False}
 
   if domain is None:
+    args = dict(
+      domainName=name
+    )
+    if cert_arn is None:
+      args['certificateName'] = cert_name
+    else:
+      args['certificateArn'] = cert_arn
+    if security_policy not in ['', None]:
+      args['securityPolicy'] = security_policy
+
     if not module.check_mode:
-      domain = backoff_create_domain_name(client, name, cert_arn, cert_name)
+      domain = backoff_create_domain_name(client, args)
     changed = True
     # Domain will be None when check_mode is true
     if domain is None:
@@ -225,6 +234,8 @@ def ensure_domain_name_present(module, client):
       patches.append({'op': 'replace', 'path': '/certificateArn', 'value': cert_arn})
     if cert_name not in ['', None] and cert_name != domain['certificateName']:
       patches.append({'op': 'replace', 'path': '/certificateName', 'value': cert_name})
+    if security_policy not in ['', None] and security_policy != domain['securityPolicy']:
+      patches.append({'op': 'replace', 'path': '/securityPolicy', 'value': security_policy})
 
     if patches:
       changed = True

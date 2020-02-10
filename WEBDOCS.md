@@ -43,7 +43,8 @@ Add, update, or remove DomainName resources
 | None | name |   yes  |  | |  The name of the DomainName resource on which to operate  |
 | None | state |   no  |  present  | <ul> <li>present</li>  <li>absent</li> </ul> |  Should domain_name exist or not  |
 | None | cert_arn |   no  |    | |  ARN of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'  |
-| None | cert_name |   no  |    | |  Name of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'
+| None | cert_name |   no  |    | |  Name of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present' |
+| None | security_policy |   no  |    | <ul> <li>TLS_1_0</li> <li>TLS_1_2</li> </ul> | The Transport Layer Security (TLS) version + cipher suite. |
 
  
 #### <a id="apigw_domain_name-examples"></a>Examples
@@ -57,6 +58,7 @@ Add, update, or remove DomainName resources
     apigw_domain_name:
       name: testdomain.io.edu.mil
       cert_arn: 'arn:aws:acm:us-east-1:1234:certificate/12345ae'
+      security_policy: TLS_1_2
       state: "{{ state | default('present') }}"
     register: dn
 
