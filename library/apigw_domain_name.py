@@ -234,7 +234,7 @@ def ensure_domain_name_present(module, client):
       patches.append({'op': 'replace', 'path': '/certificateArn', 'value': cert_arn})
     if cert_name not in ['', None] and cert_name != domain['certificateName']:
       patches.append({'op': 'replace', 'path': '/certificateName', 'value': cert_name})
-    if security_policy not in ['', None] and security_policy != domain['securityPolicy']:
+    if security_policy not in ['', None] and security_policy != domain.get('securityPolicy'):
       patches.append({'op': 'replace', 'path': '/securityPolicy', 'value': security_policy})
 
     if patches:
