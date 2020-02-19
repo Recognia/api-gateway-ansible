@@ -86,6 +86,16 @@ options:
     choices: ['present', 'absent']
     default: 'present'
     required: False
+  tags:
+    description:
+      - A hash/dictionary of tags to add to the new api or to add/remove from an existing one.
+    type: dict
+  purge_tags:
+    description:
+      - Delete any tags not specified in the task that are on the api.
+        This means you have to specify all the desired tags on each task affecting an api.
+    default: false
+    type: bool
 requirements:
     - python = 2.7
     - boto
@@ -166,7 +176,8 @@ except ImportError:
     pass
 
 from ansible.module_utils.aws.core import AnsibleAWSModule
-from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict,
+        compare_aws_tags, get_aws_connection_info)
 
 param_map = {
     'api_key_source': 'apiKeySource',
@@ -200,6 +211,8 @@ def main():
         ),
         minimum_compression_size=dict(required=False, type='int'),
         policy=dict(required=False),
+        tags=dict(type='dict'),
+        purge_tags=dict(type='bool', default=False),
         version=dict(required=False),
         state=dict(default='present', choices=['present', 'absent']),
     )
@@ -244,6 +257,15 @@ def backoff_get_rest_apis(client):
     return client.get_rest_apis(
         limit=500
     )
+
+
+@AWSRetry.exponential_backoff()
+def backoff_tag_resource(client, arn, tags):
+  return client.tag_resource(resourceArn=arn, tags=tags)
+
+
+def backoff_untag_resource(client, arn, tagKeys):
+  return client.untag_resource(resourceArn=arn, tagKeys=tagKeys)
 
 
 @AWSRetry.exponential_backoff()
@@ -336,6 +358,25 @@ def ensure_rest_api_present(module, client):
             rest_api = create_rest_api(module, client)
 
     else:
+        tags = module.params.get('tags')
+        purge_tags = module.params.get('purge_tags')
+        old_tags = rest_api.get('tags') or {}
+        if tags is not None:
+            region, ec2_url, aws_connect_kwargs = get_aws_connection_info(module, boto3=True)
+            arn = 'arn:aws:apigateway:{0}::/restapis/{1}'.format(region, rest_api['id'])
+            to_tag, to_untag = compare_aws_tags(old_tags, tags, purge_tags=purge_tags)
+            if to_tag:
+                changed |= True
+                if not module.check_mode:
+                    backoff_tag_resource(client, arn, to_tag)
+            if to_untag:
+                changed |= True
+                if not module.check_mode:
+                    backoff_untag_resource(client, arn, to_untag)
+            # need to get new tags
+            if changed:
+                domain = backoff_get_rest_api(client, rest_api['id'])
+
         patches = create_patches(module, rest_api)
         if patches:
             changed = True
@@ -347,7 +388,7 @@ def ensure_rest_api_present(module, client):
 
     return {
         'changed': changed,
-        'api': camel_dict_to_snake_dict(rest_api)
+        'api': camel_dict_to_snake_dict(rest_api),
     }
 
 

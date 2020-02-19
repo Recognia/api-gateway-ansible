@@ -155,6 +155,8 @@ Add, update, or remove REST API resources
 | endpoint_configuration | types |   no  |  | <ul> <li>EDGE</li> <li>REGIONAL</li> <li>PRIVATE</li> </ul> |  The list of endpoint types.  |
 | None | minimum_compression_size |   no  |  | |  Enable compression with a payload size larger than this value.  |
 | None | policy |   no  |  | |  A stringified JSON policy document that applies to this RestApi regardless of the caller and Method configuration.  |
+| None | tags |   no  |    |  | Dict of tags to set on rest api. |
+| None | purge_tags |   no  |  no  |  | Whether to remove tags from rest api that are not in defined dict of tags. |
 | None | version |   no  |  | |  A version identifier for the API.  |
 
 
