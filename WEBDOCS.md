@@ -45,6 +45,8 @@ Add, update, or remove DomainName resources
 | None | cert_arn |   no  |    | |  ARN of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present'  |
 | None | cert_name |   no  |    | |  Name of the associated certificate. Either C(cert_arn) or C(cert_name) required when C(state) is 'present' |
 | None | security_policy |   no  |    | <ul> <li>TLS_1_0</li> <li>TLS_1_2</li> </ul> | The Transport Layer Security (TLS) version + cipher suite. |
+| None | tags |   no  |    |  | Dict of tags to set on domain name. |
+| None | purge_tags |   no  |  no  |  | Whether to remove tags from domain name that are not in defined dict of tags. |
 
  
 #### <a id="apigw_domain_name-examples"></a>Examples

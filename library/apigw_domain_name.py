@@ -43,7 +43,9 @@ author: Brian Felton (@bjfelton)
 short_description: Add, update, or remove DomainName resources
 description:
 - Uses domain name for identifying resources for CRUD operations
-- Update only covers certificate name
+- Update cannot change name
+- Update of tags requires the certificate arn returned to match arn:aws:something:<region>: in order to
+  determine region to build ARN for tag_resource api.
 version_added: "2.2"
 options:
   name:
@@ -73,6 +75,16 @@ options:
     choices: ['present', 'absent']
     default: 'present'
     required: False
+  tags:
+    description:
+      - A hash/dictionary of tags to add to the new domain name or to add/remove from an existing one.
+    type: dict
+  purge_tags:
+    description:
+      - Delete any tags not specified in the task that are on the domain name.
+        This means you have to specify all the desired tags on each task affecting a domain name.
+    default: false
+    type: bool
 requirements:
     - python = 2.7
     - boto
@@ -121,7 +133,9 @@ except ImportError:
     pass
 
 from ansible.module_utils.aws.core import AnsibleAWSModule
-from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict)
+from ansible.module_utils.ec2 import (AWSRetry, camel_dict_to_snake_dict, compare_aws_tags)
+
+import re
 
 def main():
     argument_spec = dict(
@@ -130,6 +144,8 @@ def main():
         cert_name=dict(required=False),
         security_policy=dict(required=False),
         state=dict(default='present', choices=['present', 'absent']),
+        tags=dict(type='dict'),
+        purge_tags=dict(type='bool', default=False),
     )
 
     mutually_exclusive = [['cert_arn', 'cert_name']]
@@ -163,11 +179,16 @@ def backoff_create_domain_name(client, args):
 def backoff_delete_domain_name(client, name):
   return client.delete_domain_name(domainName=name)
 
-
 @AWSRetry.exponential_backoff()
 def backoff_get_domain_name(client, name):
   return client.get_domain_name(domainName=name)
 
+@AWSRetry.exponential_backoff()
+def backoff_tag_resource(client, arn, tags):
+  return client.tag_resource(resourceArn=arn, tags=tags)
+
+def backoff_untag_resource(client, arn, tagKeys):
+  return client.untag_resource(resourceArn=arn, tagKeys=tagKeys)
 
 @AWSRetry.exponential_backoff()
 def backoff_update_domain_name(client, name, patches):
@@ -199,6 +220,8 @@ def ensure_domain_name_present(module, client):
   cert_arn = module.params.get('cert_arn')
   cert_name = module.params.get('cert_name')
   security_policy = module.params.get('security_policy')
+  tags = module.params.get('tags')
+  purge_tags = module.params.get('purge_tags')
 
   domain = retrieve_domain_name(module, client, name)
   changed = False
@@ -217,6 +240,8 @@ def ensure_domain_name_present(module, client):
       args['certificateArn'] = cert_arn
     if security_policy not in ['', None]:
       args['securityPolicy'] = security_policy
+    if tags != None:
+      args['tags'] = tags
 
     if not module.check_mode:
       domain = backoff_create_domain_name(client, args)
@@ -227,6 +252,24 @@ def ensure_domain_name_present(module, client):
         'changed': changed,
         'domain_name': {}
       }
+
+  if domain and tags is not None:
+    s = re.search('arn:aws:[^:]+:([^:]+):', domain['certificateArn'])
+    region = s.group(1)
+    arn = 'arn:aws:apigateway:{0}::/domainnames/{1}'.format(region, name)
+    to_tag, to_untag = compare_aws_tags(domain.get('tags'), tags, purge_tags=purge_tags)
+    if to_tag:
+      changed |= True
+      if not module.check_mode:
+        backoff_tag_resource(client, arn, to_tag)
+    if to_untag:
+      changed |= True
+      if not module.check_mode:
+        backoff_untag_resource(client, arn, to_untag)
+
+    # need to get new tags
+    if changed:
+      domain = retrieve_domain_name(module, client, name)
 
   try:
     patches = []
@@ -250,7 +293,7 @@ def ensure_domain_name_present(module, client):
 
   return {
     'changed': changed,
-    'domain_name': camel_dict_to_snake_dict(domain)
+    'domain_name': camel_dict_to_snake_dict(domain),
   }
 
 
