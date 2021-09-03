@@ -301,9 +301,9 @@ def create_patches(module, usage_plan):
     patches = []
 
     def all_defaults(params_list):
-        is_default = False
+        is_default = True
         for p in params_list:
-            is_default = is_default or is_default_value(p, module.params.get(p, None))
+            is_default = is_default and is_default_value(p, module.params.get(p, None))
 
         return is_default
 
