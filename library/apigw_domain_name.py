@@ -256,7 +256,7 @@ def ensure_domain_name_present(module, client):
 
   if domain and tags is not None:
     region, ec2_url, aws_connect_kwargs = get_aws_connection_info(module, boto3=True)
-    arn = 'arn:aws:apigateway:{0}::/domainnames/{1}'.format(region, name)
+    arn = domain.get('domainNameArn')
     old_tags = domain.get('tags') or {}
     to_tag, to_untag = compare_aws_tags(old_tags, tags, purge_tags=purge_tags)
     if to_tag:
