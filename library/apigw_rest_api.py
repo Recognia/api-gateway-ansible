@@ -363,7 +363,10 @@ def ensure_rest_api_present(module, client):
         old_tags = rest_api.get('tags') or {}
         if tags is not None:
             region, ec2_url, aws_connect_kwargs = get_aws_connection_info(module, boto3=True)
-            arn = 'arn:aws:apigateway:{0}::/restapis/{1}'.format(region, rest_api['id'])
+            partition = 'aws'
+            if region in ['cn-north-1', 'cn-northwest-1']:
+                partition = 'aws-cn'
+            arn = 'arn:{0}:apigateway:{1}::/restapis/{2}'.format(partition, region, rest_api['id'])
             to_tag, to_untag = compare_aws_tags(old_tags, tags, purge_tags=purge_tags)
             if to_tag:
                 changed |= True
