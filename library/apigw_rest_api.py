@@ -344,6 +344,7 @@ def ensure_rest_api_absent(module, client):
 
 def ensure_rest_api_present(module, client):
     changed = False
+    debug = ""
 
     rest_api_id = module.params.get('id')
 
@@ -383,6 +384,7 @@ def ensure_rest_api_present(module, client):
         patches = create_patches(module, rest_api)
         if patches:
             changed = True
+            debug = patches
             if not module.check_mode:
                 rest_api = backoff_update_rest_api(client, rest_api['id'], patches)
 
@@ -392,6 +394,7 @@ def ensure_rest_api_present(module, client):
     return {
         'changed': changed,
         'api': camel_dict_to_snake_dict(rest_api),
+        'debug': debug,
     }
 
 
