@@ -298,7 +298,7 @@ def create_patches(module, rest_api):
         if new is not None and new != old:
             if f != 'policy' and old is None:
                 patches.append({'op': 'add', 'path': "/{}".format(key), 'value': str(new)})
-            elif old != new of (f == policy and new is not None):
+            elif old != new or (f == policy and new is not None):
                 patches.append({'op': 'replace', 'path': "/{}".format(key), 'value': str(new)})
 
     return patches
