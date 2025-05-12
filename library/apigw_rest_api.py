@@ -296,9 +296,9 @@ def create_patches(module, rest_api):
         key = param_map.get(f, f)
         old = rest_api.get(key)
         if new is not None and new != old:
-            if old is None:
+            if f != 'policy' and old is None:
                 patches.append({'op': 'add', 'path': "/{}".format(key), 'value': str(new)})
-            elif old != new:
+            elif old != new of (f == policy and new is not None):
                 patches.append({'op': 'replace', 'path': "/{}".format(key), 'value': str(new)})
 
     return patches
@@ -344,7 +344,6 @@ def ensure_rest_api_absent(module, client):
 
 def ensure_rest_api_present(module, client):
     changed = False
-    debug = ""
 
     rest_api_id = module.params.get('id')
 
@@ -384,7 +383,6 @@ def ensure_rest_api_present(module, client):
         patches = create_patches(module, rest_api)
         if patches:
             changed = True
-            debug = patches
             if not module.check_mode:
                 rest_api = backoff_update_rest_api(client, rest_api['id'], patches)
 
@@ -394,7 +392,6 @@ def ensure_rest_api_present(module, client):
     return {
         'changed': changed,
         'api': camel_dict_to_snake_dict(rest_api),
-        'debug': debug,
     }
 
 
